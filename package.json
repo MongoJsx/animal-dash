@@ -1,0 +1,30 @@
+{
+  "name": "dora",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "assets:search": "node tools/sketchfab-search.mjs",
+    "assets:download": "node tools/sketchfab-download.mjs",
+    "check:track": "tsx tools/check-track.ts",
+    "assets:mixamo": "node tools/import-mixamo.mjs",
+    "assets:rig": "node tools/autorig.mjs",
+    "assets:props": "node tools/build-props.mjs",
+    "assets:catalog": "sh tools/catalog-assets.sh"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1",
+    "@types/three": "^0.186.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "mqtt": "^5.16.1",
+    "three": "^0.186.1"
+  }
+}

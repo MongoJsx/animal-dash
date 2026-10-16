@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Character Preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #20232a; color: #eee; font: 14px system-ui, sans-serif; overflow: hidden; }
+  #hud { position: fixed; top: 12px; left: 12px; background: #000a; padding: 8px 12px; border-radius: 8px; }
+  canvas { display: block; }
+  .label { position: fixed; transform: translate(-50%, 0); background: #000b; padding: 2px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="hud">ตัวละคร (ลดเหลือ ~15k tris) · ลากเพื่อหมุน · สโครลเพื่อซูม · ปรับทุกตัวให้สูง 1.8 m</div>
+<script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+  const NAMES = ['big_brother_pig', 'bojack_horseman_meshy', 'luobotu', 'pug_outfit', 'snoop_dog_but_dog_style', 'velkara'];
+  const SPACING = 2.2;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x20232a);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444455, 2));
+  const sun = new THREE.DirectionalLight(0xffffff, 2);
+  sun.position.set(3, 6, 5);
+  scene.add(sun);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(12, 48), new THREE.MeshStandardMaterial({ color: 0x3a3f4b }));
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.05, 100);
+  camera.position.set(0, 2, 9);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0.9, 0);
+
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const labels = [];
+
+  NAMES.forEach((name, i) => {
+    loader.load(`/assets/characters/preview/${name}.glb`, (gltf) => {
+      const model = gltf.scene;
+      // Some sources are Z-up: stand the model on its tallest axis.
+      let box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      if (size.z > size.y && size.z >= size.x) model.rotation.x = -Math.PI / 2;
+      else if (size.x > size.y * 1.4) model.rotation.z = Math.PI / 2;
+      model.updateMatrixWorld(true);
+      box = new THREE.Box3().setFromObject(model);
+      const s = 1.8 / box.getSize(new THREE.Vector3()).y;
+      model.scale.multiplyScalar(s);
+      model.updateMatrixWorld(true);
+      box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      model.position.x += (i - (NAMES.length - 1) / 2) * SPACING - center.x;
+      model.position.z -= center.z;
+      model.position.y -= box.min.y;
+      scene.add(model);
+
+      const el = document.createElement('div');
+      el.className = 'label';
+      el.textContent = name;
+      document.body.appendChild(el);
+      labels.push({ el, pos: new THREE.Vector3((i - (NAMES.length - 1) / 2) * SPACING, 2, 0) });
+    });
+  });
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  const v = new THREE.Vector3();
+  renderer.setAnimationLoop(() => {
+    controls.update();
+    renderer.render(scene, camera);
+    for (const l of labels) {
+      v.copy(l.pos).project(camera);
+      l.el.style.left = `${(v.x + 1) / 2 * innerWidth}px`;
+      l.el.style.top = `${(1 - v.y) / 2 * innerHeight}px`;
+    }
+  });
+</script>
+</body>
+</html>

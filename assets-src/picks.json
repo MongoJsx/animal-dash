@@ -1,0 +1,1242 @@
+[
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 42,
+  "rank": 1,
+  "what": "short chunky wooden picket fence (3.3x1.2, 440 tris)",
+  "why": "Checked on the sheet. A bright, chunky Quaternius cartoon fence with a clear jump-over silhouette and very few tris. Scale it to 2.0 x 0.95.",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 28,
+  "rank": 2,
+  "what": "replacement: The index is correct (rustic rail/picket fence), but on the ",
+  "why": "Checked on the sheet. Warm, saturated wood in a Clash-like style with a playful rustic slant. Already near lane width, so it only needs a small height stretch.",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 42,
+  "rank": 2,
+  "what": "replacement: The cell is correct (stacked logs), but this same mesh is al",
+  "why": "Checked on the sheet. A neat stack of cartoon logs that reads well as a log barrier. Squash it to 0.95 tall and stretch it to 2.0 wide for variety in the forest.",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 42,
+  "rank": 1,
+  "what": "short chunky picket fence, tinted pastel (pink/white, like a candy-cane fence)",
+  "why": "No candidate is candy-themed. This smooth, chunky, rounded fence is the only one neutral and cute enough to pass as candy once its material is tinted pastel (440 tris).",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 42,
+  "rank": 1,
+  "what": "short chunky wooden picket fence",
+  "why": "Its brown cartoon wood suits a pirate wooden dock as a low railing. It matches the Quaternius platformer look and is very cheap at 440 tris.",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/snow/low-poly-wood-fence-with-snow-fabc2a",
+  "index": 0,
+  "rank": 1,
+  "what": "snow-capped rail fence section with post (1.18x0.74, 231 tris)",
+  "why": "Checked on the sheet. Its reddish wood with white snow caps reads clearly against snow and costs very few tris. Scale it to 2.0 x 0.95 or tile it twice. Skip index 1, which is a collider.",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/snow/low-poly-wood-fence-with-snow-50cd19",
+  "index": 0,
+  "rank": 2,
+  "what": "snow-capped picket fence section with post (1.2x0.72, 313 tris)",
+  "why": "Checked on the sheet. It shares the flat-shaded style of the first pick, with a picket variant for variety. The wood is quite dark, so it would benefit from a brighter tint. Skip index 1, which is a collider.",
+  "slot": "lowbar"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 49,
+  "what": "wooden crate stacked 2 high (2.0x2.0x2.0 per crate, scale depth to 1.6)",
+  "rank": 1,
+  "why": "Confirmed on the sheet: a chunky, bright cartoon crate with only 264 tris. It is already 2 m wide, so a stack of two (about 2.9 m after scaling) reads clearly as a block to dodge. It is in the Quaternius kit, the same one used for the village's other strong pieces.",
+  "slot": "wall"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 12,
+  "what": "red brick cube stretched to 2.9 tall",
+  "rank": 2,
+  "why": "Confirmed: a saturated red brick block, 2.0x2.0x2.1 at 1456 tris. Its solid box silhouette matches the hit volume exactly, and it is in the same kit as the crate.",
+  "slot": "wall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 31,
+  "what": "brown rock pillar cluster",
+  "rank": 1,
+  "why": "Confirmed: a tall, chunky brown pillar, 2.6x3.0x3.1 at 576 tris. It is already close to 2.0x2.9 and gives a clear cartoon silhouette, in a style that is coherent with the platformer kit.",
+  "slot": "wall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 48,
+  "what": "single brown rock pillar / tree stump scaled to 2.9 tall",
+  "rank": 2,
+  "why": "Confirmed: a smooth, tapered stump at 288 tris that reads as a giant tree trunk. It matches the look of #31 and gives that piece some variety.",
+  "slot": "wall"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 2,
+  "what": "giant cupcake scaled ~20x to 2.0 wide x 2.9 tall",
+  "rank": 1,
+  "why": "Confirmed: a cute pastel-purple cupcake with sprinkles and a chunky silhouette, the best fit for candy land. At 4368 tris it is slightly over the 4k budget, so decimate it a little. The tiramisu was rejected because it looks murky and semi-realistic, with a hollow ring-shaped outline in piece 0.",
+  "slot": "wall"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/pirate-asset-pack-a9661a",
+  "index": 5,
+  "what": "pirate wooden crate stacked/scaled to 2.0x2.9x1.6",
+  "rank": 1,
+  "why": "Confirmed: a hand-painted pirate crate at only 196 tris. It is the most readable box shape for a block on the dock and matches the harbor's pirate pack.",
+  "slot": "wall"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 50,
+  "what": "tall grey rock scaled to 2.0x2.9 (tint cooler / add white snow-cap material)",
+  "rank": 1,
+  "why": "Confirmed: a faceted cartoon rock, 1.6x2.3x1.5 at 264 tris. It is close to the target size, has a clean silhouette, and becomes a snowy boulder with a pale blue tint.",
+  "slot": "wall"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/ob-jump/free-pack-rocks-stylized-7c60b4",
+  "index": 1,
+  "what": "replacement: The sheet shows drab grey-blue body spheres, noisy dark-blue",
+  "rank": 2,
+  "why": "A cute statue that suits the biome, at about 4k tris in total. The model is split into 15 parts (body spheres, claws, carrot nose, gems), so use the whole model at -1. Its outline is irregular, so it is second choice behind the rock.",
+  "slot": "wall"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 20,
+  "what": "chunky golden hay bale",
+  "rank": 1,
+  "why": "Checked on the sheet: a clean flat-shaded rectangular bale with a bulged middle, 56 tris and 1.6x1.4x1.1 in size, which is close to the hit volume. It reads instantly as hay, which suits a slot named hay. Scale it up a little and turn it to sit across the lane.",
+  "slot": "hay"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 21,
+  "what": "wooden X-braced crate",
+  "rank": 2,
+  "why": "Checked on the sheet: a bright, smooth Clash-style crate with a crisp cube silhouette, 392 tris. It matches the warm cartoon look of the village and gives a non-hay variety block.",
+  "slot": "hay"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 5,
+  "what": "stack of three logs",
+  "rank": 1,
+  "why": "Checked on the sheet: 1.8x1.2x1.8 and 1082 tris, almost exactly the hit volume. It has a chunky, saturated cartoon wood look and reads clearly as a block to jump over in a forest.",
+  "slot": "hay"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 0,
+  "what": "pair of cut tree stumps (one lying, one upright)",
+  "rank": 2,
+  "why": "Checked on the sheet: bright golden-orange cartoon stumps from the same pack as the log stack, so the forest keeps one coherent look. At 2426 tris it is within budget. Scale it to 1.8 wide.",
+  "slot": "hay"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 49,
+  "what": "replacement: Cell 17 is a cube present, but its wrap is near-black and pr",
+  "rank": 2,
+  "why": "Checked on the sheet: a clean single cube with 44 tris that works as a fallback present-box block. Its wrap texture is dark and photo-like, so lighten or retint it to pastel to fit candy land.",
+  "slot": "hay"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 21,
+  "what": "replacement: Cell #5 is an open-top hollow crate. At 1.15 m tall its top ",
+  "rank": 1,
+  "why": "Checked on the sheet: a chunky hand-painted crate with 196 tris and a clear cube silhouette. Its pirate-pack style suits the dock. The wood is somewhat dark, so boost saturation slightly.",
+  "slot": "hay"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/dock-house-stylized-wooden-pier-4f0df9",
+  "index": 14,
+  "what": "replacement: Laying the pirate barrel #2 on its side makes it look exactl",
+  "rank": 2,
+  "why": "Checked on the sheet: 504 tris from the same pirate pack as the crate, so the look stays coherent. Laid on its side it makes a classic dock obstacle.",
+  "slot": "hay"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 54,
+  "what": "grey faceted boulder",
+  "rank": 1,
+  "why": "Checked on the sheet: a chunky Quaternius rock with 160 tris, in the bright cartoon style closest to the target. It reads cleanly against snow. Scale it to 1.8x1.15x1.4.",
+  "slot": "hay"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 5,
+  "what": "stack of three logs",
+  "rank": 2,
+  "why": "A neutral cartoon log pile with nearly exact proportions, which fits a mountain woodpile. The warm brown contrasts well with snow. It is shared with the forest set.",
+  "slot": "hay"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/zombie-apocalypse-kit-free-b0806e",
+  "index": 30,
+  "what": "red shipping container",
+  "rank": 1,
+  "why": "Checked on the sheet: index 30 is a clean red corrugated container. It has a flat roof, 1032 tris, is about 2.6 m tall and about 7.7 m long. On its own it is a neutral, readable dock freight car. Unlike the green #27, which looks military, it is free of the zombie theme. Stretch it slightly to 9 m.",
+  "slot": "trainCar"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/ob-block/stylized-wooden-cart-0c9166",
+  "index": -1,
+  "rank": 1,
+  "what": "wooden hand cart with spoked wheels (body + wheels, 1120 tris)",
+  "why": "Checked on the sheet: cart body plus a pair of spoked wheels. It has a clean, readable cart silhouette with the handle pointing at the runner, and it is light at about 1.1k tris. Its stylized look fits a fairy-tale village; tint the wood a little warmer and brighter.",
+  "slot": "oncoming"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 4,
+  "rank": 2,
+  "what": "replacement: This is the same model already used as trainCar rank 1. Show",
+  "why": "Checked on the sheet: 35 parts (wheel, planks, staves, hoops, drawbar) that assemble into a cart loaded with barrels. Stylized low-poly, light on tris, and the barrel load makes a chunky, readable obstacle. The texture is dark, so brighten the tint.",
+  "slot": "oncoming"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/ob-block/stylized-wooden-cart-0c9166",
+  "index": -1,
+  "rank": 2,
+  "what": "wooden hand cart with spoked wheels",
+  "why": "A neutral wooden dock hand cart with the same warm wood look as the barrel cart. It is a light backup option.",
+  "slot": "oncoming"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/ob-block/stylized-wooden-cart-0c9166",
+  "index": -1,
+  "rank": 1,
+  "what": "wooden hand cart with spoked wheels",
+  "why": "A simple stylized wooden cart reads well on a forest path and is light on tris. It keeps the same wood look as the village and harbor carts.",
+  "slot": "oncoming"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 11,
+  "what": "big cartoon barrel with iron hoops",
+  "rank": 1,
+  "why": "Checked on the sheet. It is a bright, smooth Clash-style barrel at 1.2x1.2x1.2, so it already matches the slot size, and it is only 758 tris. Its chunky round silhouette reads clearly when it rolls.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "single log",
+  "rank": 2,
+  "why": "Checked on the sheet. It is a clean brown cartoon log at 218 tris and comes from the same pack as the barrel, so the village keeps one look. Scale it up to about 1.1 diameter and lay it across the lane so it rolls about its long axis.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "single log",
+  "rank": 1,
+  "why": "A rolling log is the most natural hazard for an enchanted forest. It is a saturated cartoon log at very low poly (218 tris).",
+  "slot": "rolling"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "black spiked ball",
+  "rank": 2,
+  "why": "Checked on the sheet. This chunky Quaternius spiked ball is about 1.7 units wide, so it scales down easily, and it is 1004 tris. It reads at once as danger, and its cartoon style suits a fantasy forest.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "black spiked ball",
+  "rank": 2,
+  "why": "A neutral cartoon fallback with a clear silhouette and low tri count (1004). It could be tinted pink or candy-coloured.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/pirate-asset-pack-a9661a",
+  "index": 2,
+  "what": "iron-banded wooden barrel",
+  "rank": 1,
+  "why": "Checked on the sheet. A chunky hand-painted pirate barrel at 504 tris that matches the pirate dock theme exactly. Scale it from 3.7x5.0 down to about 1.1 diameter and lay it on its side to roll.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 11,
+  "what": "big cartoon barrel with iron hoops",
+  "rank": 2,
+  "why": "A brighter, more saturated barrel in the same cartoon style as the village pick (758 tris). It is a good alternative if the pirate barrel looks too dark.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "single log",
+  "rank": 1,
+  "why": "There is no snowball among the candidates. A rolling log suits a snowy mountain, and the warm brown stands out against white snow (218 tris).",
+  "slot": "rolling"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "black spiked ball",
+  "rank": 2,
+  "why": "A dark, high-contrast silhouette that reads well on snow, in the same cartoon style (1004 tris). It could be tinted icy blue so it reads as an ice mine.",
+  "slot": "rolling"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 8,
+  "what": "green horned blob monster",
+  "rank": 1,
+  "why": "Verified on sheet: a chunky, bright green horned blob with a toothy grin. At 1968 tris it is cheap. It reads clearly at speed and matches the Quaternius platformer look used across these biomes.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 3,
+  "what": "cartoon bee monster",
+  "rank": 2,
+  "why": "Verified on sheet: a cute striped bee with wings, 3040 tris, in the same kit style. It needs to hover at body height.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 8,
+  "what": "green horned blob monster",
+  "rank": 1,
+  "why": "Its green colour and forest-goblin feel suit the enchanted forest. At 1968 tris it is low-poly, in the same style as the kit trees and bushes.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 3,
+  "what": "cartoon bee monster",
+  "rank": 2,
+  "why": "A bee is natural in a forest. It comes from the same kit and has a strong yellow and black silhouette, at 3040 tris.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 3,
+  "what": "cartoon bee monster",
+  "rank": 1,
+  "why": "The honey-bee theme suits candy land, and it is a bright, cute low-poly creature. It is the only candidate that fits candy.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 2,
+  "what": "red crab monster",
+  "rank": 1,
+  "why": "Verified on sheet: a red cartoon crab with claws. A crab walking sideways is the perfect motion for this slot. At 3624 tris it is under 4k, and the bright kit style is very close to the target.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/treasure-chest-mimic-26277b",
+  "index": 0,
+  "what": "treasure chest mimic (use pieces 0 + 3, drop coin trails 1-2)",
+  "rank": 2,
+  "why": "Verified on sheet: a chunky banded chest body (1918 tris) plus a red tongue (636 tris). That totals about 2.5k tris once the coin trails are dropped. It is an iconic pirate mimic, although its stylized hand-painted look differs slightly from the crab.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/snow/snowman-low-poly-game-ready-75f06f",
+  "index": -1,
+  "what": "replacement: The pieces are drab and semi-realistic (grey-blue spheres, n",
+  "rank": 1,
+  "why": "Verified pieces: snowball body, ice claws/legs, stick arms, carrot nose, gems and a bowtie. It reads as a monster that walks side to side. It totals about 4k tris and needs scaling down to about 2.0 tall.",
+  "slot": "shifter"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "SpikyBall: black spiked ball (1004 tris)",
+  "rank": 1,
+  "why": "I checked the sheet and #19 is the spiked ball. It is the classic swinging-hazard shape, a round body with cone spikes that reads at any angle, it suits a cartoon look, and it is cheap at 1.0k tris. Scale it up to about 1.4.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 18,
+  "what": "Hazard_Cylinder: spiked dark-navy mace/club (1086 tris)",
+  "rank": 2,
+  "why": "I checked the sheet and #18 is a spiked club with a stubby handle, so it works as a mace head. It comes from the same Quaternius kit as #19 and has a good silhouette. It is preferred over the medieval hammer #26, which is only 0.2 thick and about 1 unit in size, so it reads as thin and small on a swinging arm.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "SpikyBall: black spiked ball",
+  "rank": 1,
+  "why": "It is a neutral, cute platformer hazard in the same chunky cartoon style, and it reads clearly against green foliage.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 18,
+  "what": "Hazard_Cylinder: spiked mace/club",
+  "rank": 2,
+  "why": "It is a variant from the same kit, giving a second pendulum shape so repeated rows look less alike.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "SpikyBall: black spiked ball",
+  "rank": 1,
+  "why": "Its toy-like cartoon shape fits candy land, and it can be retinted pink or brown to look like a licorice or chocolate ball. Its dark default color stands out well against pastels.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 18,
+  "what": "Spiked mace/club",
+  "rank": 2,
+  "why": "It can be retinted to look like a candy stick with spikes, and it stays consistent with the kit's style.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "SpikyBall: black spiked ball",
+  "rank": 1,
+  "why": "A black iron spiked ball looks like a pirate cannonball or naval mine, a good thematic match for the dock.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 18,
+  "what": "Spiked mace/club",
+  "rank": 2,
+  "why": "A dark iron spiked club suits a pirate dock and comes from the same kit.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 19,
+  "what": "SpikyBall: black spiked ball",
+  "rank": 1,
+  "why": "Its dark silhouette reads strongly against the white snow, and its style matches the cartoon kit.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 18,
+  "what": "Spiked mace/club",
+  "rank": 2,
+  "why": "It is a second shape that also reads strongly against snow, from the same low-poly kit.",
+  "slot": "pendulumHead"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 40,
+  "what": "red spike trap plate",
+  "rank": 1,
+  "why": "Checked on the sheet: a low maroon plate with 5 grey cones. At 2.0x0.8x2.0 it nearly matches the slot footprint, has 460 tris and reads clearly. It is the same Quaternius cartoon kit as the other strong picks.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 44,
+  "what": "red spike trap plate (variant)",
+  "rank": 2,
+  "why": "A variant of #40 with a different spike layout, 436 tris. Using it avoids the same plate showing twice in a row.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 40,
+  "what": "red spike trap plate",
+  "rank": 1,
+  "why": "A generic cartoon spike plate that fits any biome. The red base stands out clearly against greenery, and it has 460 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 44,
+  "what": "red spike trap plate (variant)",
+  "rank": 2,
+  "why": "Variant spike layout for variety, 436 tris, same look.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 40,
+  "what": "red spike trap plate",
+  "rank": 1,
+  "why": "The saturated cherry-red base fits candy land and the chunky cartoon shapes match. Footprint fits the slot and it has 460 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 44,
+  "what": "red spike trap plate (variant)",
+  "rank": 2,
+  "why": "Variant spike layout for variety, 436 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 40,
+  "what": "red spike trap plate",
+  "rank": 1,
+  "why": "The maroon base sits well on wooden planks and the silhouette is easy to read. It is neutral and cute, with 460 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 44,
+  "what": "red spike trap plate (variant)",
+  "rank": 2,
+  "why": "Variant spike layout for variety, 436 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 40,
+  "what": "red spike trap plate",
+  "rank": 1,
+  "why": "Red shows up strongly against white snow, which makes it a very readable hazard. It has 460 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 44,
+  "what": "red spike trap plate (variant)",
+  "rank": 2,
+  "why": "Variant spike layout for variety, 436 tris.",
+  "slot": "spikes"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 11,
+  "what": "wooden barrel with grey iron bands",
+  "rank": 1,
+  "why": "Checked on the sheet. It is a bright, chunky cartoon barrel with a clear silhouette from above and the side, and only 758 tris. Its size (1.2 m) already matches the slot, and it fits the fairy-tale village pack.",
+  "slot": "drop"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 21,
+  "what": "wooden X-braced crate",
+  "rank": 2,
+  "why": "Checked on the sheet. It is from the same Clash-like pack as the barrel, so the look stays consistent. It is a classic falling crate at 392 tris and reads well while dropping.",
+  "slot": "drop"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 54,
+  "what": "grey faceted boulder",
+  "rank": 1,
+  "why": "Checked on the sheet. It is a chunky Quaternius cartoon rock at 160 tris and reads instantly as a falling rock. It suits the enchanted-forest look of the bright platformer kit.",
+  "slot": "drop"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 16,
+  "what": "replacement: The cell is correct (egg-shaped rock), but it has a hand-pai",
+  "rank": 2,
+  "why": "Checked on the sheet. It is a clean, stylized faceted rock at 316 tris with a compact, upright silhouette. It is the alternative if the Quaternius boulder repeats too often.",
+  "slot": "drop"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/pirate-asset-pack-a9661a",
+  "index": 2,
+  "what": "chunky wooden barrel with iron bands",
+  "rank": 1,
+  "why": "Checked on the sheet. It is a hand-painted cartoon pirate barrel at 504 tris with a strong silhouette, and it matches the pirate dock theme. I passed on crate #5 from this pack because it is an open-top hollow box that looks empty from above.",
+  "slot": "drop"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 21,
+  "what": "wooden X-braced crate",
+  "rank": 2,
+  "why": "Checked on the sheet. It is a closed, warm-wood cartoon crate at 392 tris, and its brown tones sit well next to the pirate barrel. It works as a cargo crate falling onto the dock.",
+  "slot": "drop"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 54,
+  "what": "grey faceted boulder",
+  "rank": 1,
+  "why": "Checked on the sheet. A rock falling from the mountain is the natural drop for snow. It is chunky and cartoony at 160 tris, and the grey reads clearly against snow.",
+  "slot": "drop"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "cartoon wooden log (1.1x0.4x0.5, 218 tris)",
+  "rank": 1,
+  "why": "Checked on the sheet: a clean, warm-orange cartoon log. It is the same bright Clash-style look as the pack's other village props, reads clearly as a round bar, and stretches lengthwise to 7.4 m with a radius around 0.175 without looking wrong. Very low tris.",
+  "slot": "sweeper"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "cartoon wooden log",
+  "rank": 1,
+  "why": "A fallen log suits an enchanted forest. It matches the pack's bright trees and stumps, which keeps one look across the biome, and the silhouette reads easily at ankle height.",
+  "slot": "sweeper"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "cartoon wooden log",
+  "rank": 2,
+  "why": "Works as a rolling mast or spar log, and its bright cartoon wood matches the pack's barrels and crates, which also suit the harbor.",
+  "slot": "sweeper"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 27,
+  "what": "cartoon wooden log",
+  "rank": 1,
+  "why": "A timber log is neutral and cute and fits a snowy mountain setting. Its warm orange stands out well against snow, and it shares a style with the pack's pine tree (#24) that would likely be used in snow.",
+  "slot": "sweeper"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 35,
+  "what": "red-capped coil spring bouncer",
+  "rank": 1,
+  "why": "Verified on sheet: chunky red pad on a grey coil, an instantly readable bounce pad. Only 512 tris, and it is the same Quaternius cartoon kit as the other strong picks. 1.5x1.3x1.5 is already close to the 1.6 target.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/ob-floor/trampoline-052aae",
+  "index": -1,
+  "what": "round trampoline (blue rim, black mat, legs)",
+  "rank": 2,
+  "why": "Backup with a clear trampoline silhouette. It is plainer and less cartoony, and at about 4.35k tris (legs 2944 + rim 1280 + mat 124) it is slightly over the 4k budget. Scale it from centimetres (300 wide) to 1.6 m, and dropping or decimating the thin legs would help.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 35,
+  "what": "red-capped coil spring bouncer",
+  "rank": 1,
+  "why": "The red cap reads like a toadstool-coloured pad against green forest kit pieces from the same pack. Low poly and on style.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/ob-floor/trampoline-052aae",
+  "index": -1,
+  "what": "round trampoline",
+  "rank": 2,
+  "why": "A readable fallback, but the generic look and slightly over-budget tris put it second.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 35,
+  "what": "red-capped coil spring bouncer",
+  "rank": 1,
+  "why": "The saturated red cap fits candy colours. It is low poly and has the clearest bounce affordance.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 35,
+  "what": "red-capped coil spring bouncer",
+  "rank": 1,
+  "why": "A neutral, cute spring that sits fine on a wooden dock with the pack's wooden crates and barrels. Low tris.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/ob-floor/trampoline-052aae",
+  "index": -1,
+  "what": "round trampoline",
+  "rank": 2,
+  "why": "Fallback with a blue rim that suits the sea palette. Scale to 1.6 m and trim the legs to get under budget.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 35,
+  "what": "red-capped coil spring bouncer",
+  "rank": 1,
+  "why": "The red pad pops strongly against white snow for readability. Low poly and on style.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/ob-floor/trampoline-052aae",
+  "index": -1,
+  "what": "round trampoline",
+  "rank": 2,
+  "why": "The blue rim reads well on snow as a backup. Same scaling and tri caveats as in the other biomes.",
+  "slot": "bounce"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 1,
+  "what": "cottage with orange roof",
+  "rank": 1,
+  "why": "Verified on sheet. Clean flat-shaded cartoon cottage with a warm orange roof and a readable silhouette. 6.1k tris, under the 8k limit.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 4,
+  "what": "windmill",
+  "rank": 2,
+  "why": "Iconic fairy-tale landmark with a tall, readable silhouette. Same pack as the cottage, 2.2k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/village/low-poly-camping-tents-pack-2ec3ce",
+  "index": 0,
+  "what": "round red/tan striped pavilion tent",
+  "rank": 3,
+  "why": "Bright medieval-fair tent that adds saturated colour. Flat-shaded to match the village pack, 2.4k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 2,
+  "what": "two-storey timber house",
+  "rank": 4,
+  "why": "Gives height variety next to the cottage and uses the same orange-roof style. 4.4k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/village/low-poly-camping-tents-pack-2ec3ce",
+  "index": 4,
+  "what": "round blue striped pavilion tent",
+  "rank": 5,
+  "why": "Adds a blue accent beside the red/orange pieces, cheap at 0.9k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 9,
+  "what": "round lollipop tree",
+  "rank": 6,
+  "why": "Simple storybook tree from the same pack, 564 tris. Works as filler between houses.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 2,
+  "what": "cartoon round-leaf tree",
+  "rank": 1,
+  "why": "Bright, saturated, chunky cartoon tree in the Clash-like look, close to the target style. 1.7k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 24,
+  "what": "cartoon pine tree",
+  "rank": 2,
+  "why": "Same pack as rank 1, so the forest keeps one look. Readable tiered pine at 328 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 1,
+  "what": "round fruit tree",
+  "rank": 3,
+  "why": "Quaternius chunky cartoon tree with berries, enchanted-forest feel. 4k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 3,
+  "what": "cartoon olive-leaf tree",
+  "rank": 4,
+  "why": "A colour variant of rank 1 that breaks up repetition. 1.6k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 25,
+  "what": "tall stacked brown rocks",
+  "rank": 5,
+  "why": "A smooth cartoon rock that isn't a tree, so it adds silhouette variety. 864 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 13,
+  "what": "round bushy tree",
+  "rank": 6,
+  "why": "Cheap 316-tri round tree, good for filling dense stretches.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 1,
+  "what": "striped box overflowing with lollipops and candy",
+  "rank": 1,
+  "why": "Verified on sheet. The most candy-land piece here, colourful and busy. 4.6k tris. Needs about 20x scale.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 3,
+  "what": "soft-serve ice cream cone",
+  "rank": 2,
+  "why": "Clear giant-dessert silhouette at only 332 tris. Same pastel pack as rank 1.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 4,
+  "what": "double-scoop purple ice cream cone",
+  "rank": 4,
+  "why": "Tall, readable cone at 260 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/lollipops-pack-d30320",
+  "index": -1,
+  "what": "replacement: Cell 0 is the donut. It is the same mesh as the rolling haza",
+  "rank": 5,
+  "why": "Iconic sweet in the same pack, but 6.9k tris (still under 8k), so ranked lower.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 1,
+  "what": "round fruit tree (tint pink)",
+  "rank": 6,
+  "why": "Chunky cartoon tree that can be tinted pastel to read as a candy tree. 4k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/stylized-pirate-island-pack-low-poly-3d-assets-77d8d9",
+  "index": 1,
+  "what": "three-masted pirate galleon",
+  "rank": 1,
+  "why": "Verified on sheet. The hero pirate silhouette, clean stylized low-poly at only 881 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/stylized-pirate-island-pack-low-poly-3d-assets-77d8d9",
+  "index": 15,
+  "what": "wooden stilt hut",
+  "rank": 2,
+  "why": "Dockside building in the same kit, 216 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/stylized-pirate-island-pack-low-poly-3d-assets-77d8d9",
+  "index": 11,
+  "what": "tall palm tree",
+  "rank": 3,
+  "why": "Tall tropical silhouette that sets the pirate mood. 355 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/stylized-pirate-island-pack-low-poly-3d-assets-77d8d9",
+  "index": 5,
+  "what": "wooden lookout tower",
+  "rank": 4,
+  "why": "Tall vertical landmark that adds height variety, 450 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/stylized-pirate-island-pack-low-poly-3d-assets-77d8d9",
+  "index": 3,
+  "what": "pirate ship with blue sails",
+  "rank": 5,
+  "why": "Second ship, and the blue sails add colour. 734 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/harbor/stylized-pirate-island-pack-low-poly-3d-assets-77d8d9",
+  "index": 14,
+  "what": "curved palm tree",
+  "rank": 6,
+  "why": "A palm variant so the palms don't repeat. 253 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 24,
+  "what": "cartoon pine tree",
+  "rank": 1,
+  "why": "The brightest, cleanest cartoon pine (328 tris). It reads well as a snowy pine with a white tint on the upper tiers.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 11,
+  "what": "low-poly pine tree",
+  "rank": 2,
+  "why": "Flat-shaded tiered pine, easy to frost white. 372 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/lowpoly-medieval-village-ec3ce5",
+  "index": 14,
+  "what": "slim pine tree",
+  "rank": 3,
+  "why": "Slim variant that varies the treeline, 310 tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 7,
+  "what": "dark stone castle tower with flag",
+  "rank": 4,
+  "why": "Mountain-fortress landmark in the chunky cartoon style that stands out against snow. 2.2k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 13,
+  "what": "stacked brown rock platforms",
+  "rank": 5,
+  "why": "Mountain rock outcrop, which breaks up the trees. Could take white-tinted tops. 1.4k tris.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/forest/stylized-pine-tree-tree-deadca",
+  "index": -1,
+  "what": "replacement: Cell 5 is a shaggy, olive, semi-realistic card-leaf pine. It",
+  "rank": 6,
+  "why": "Tall background pine at 740 tris. Its olive faceted style is less cartoony, so it's ranked last.",
+  "slot": "decorLarge"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 17,
+  "what": "wooden post with hanging lantern",
+  "rank": 3,
+  "why": "Tall, readable fairy-tale lamp, 546 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 23,
+  "what": "tied sack",
+  "rank": 4,
+  "why": "Cute warm sack that adds variety at low height, 358 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 55,
+  "what": "red arrow signpost",
+  "rank": 5,
+  "why": "Saturated cartoon sign, 120 tris, matches the bright look",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "village",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 30,
+  "what": "bucket of water",
+  "rank": 6,
+  "why": "Small cute filler prop, 164 tris, same style",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 35,
+  "what": "round green bush",
+  "rank": 1,
+  "why": "Simple saturated bush, 75 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 7,
+  "what": "tree stump",
+  "rank": 2,
+  "why": "Bright golden cartoon stump, 1008 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 9,
+  "what": "round berry bush",
+  "rank": 3,
+  "why": "Chunky berry bush with an enchanted feel, 1680 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 12,
+  "what": "chopping stump with axe",
+  "rank": 4,
+  "why": "Woodland story prop, 648 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 57,
+  "what": "green bush cluster",
+  "rank": 5,
+  "why": "Bright low-poly bush, 120 tris, for ground variety",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "forest",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 20,
+  "what": "large leafy plant",
+  "rank": 6,
+  "why": "Spread-leaf plant that breaks up the rounded bush shapes, 928 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 3,
+  "what": "soft-serve cone",
+  "rank": 1,
+  "why": "Cute and clearly candy, 332 tris; scale up about 20x",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 4,
+  "what": "ice cream cone",
+  "rank": 2,
+  "why": "Pastel scoop cone, 260 tris, same pack; scale up about 20x",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/candy/low-poly-sweets-pack-f29161",
+  "index": 1,
+  "what": "candy box with lollipops",
+  "rank": 3,
+  "why": "Strong candy silhouette, 4620 tris (within the decor budget)",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 61,
+  "what": "pink gem crystal",
+  "rank": 4,
+  "why": "Saturated pink rock-candy crystal, 44 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 60,
+  "what": "blue gem",
+  "rank": 5,
+  "why": "Hard-candy look, 62 tris, pairs with the pink gem",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 9,
+  "what": "open golden treasure chest",
+  "rank": 3,
+  "why": "Pirate treasure in a bright gold that reads well, 860 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 23,
+  "what": "cartoon cannon on wooden base",
+  "rank": 4,
+  "why": "Pirate-themed chunky silhouette, 892 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 17,
+  "what": "wooden post with hanging lantern",
+  "rank": 5,
+  "why": "Dock lamp in the same style, 546 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "harbor",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 22,
+  "what": "open grain sack",
+  "rank": 6,
+  "why": "Cargo sack filler, 360 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/low-poly-medieval-environment-pack-35-props-a85053",
+  "index": 6,
+  "what": "campfire with stones",
+  "rank": 3,
+  "why": "Warm colour accent against the snow, 1054 tris",
+  "slot": "decorSmall"
+ },
+ {
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/ultimate-platformer-pack-100-models-8e016b",
+  "index": 49,
+  "what": "replacement: This is exactly the same model as lowbar rank 2. A jump obst",
+  "rank": 4,
+  "why": "Snow-capped fence, 313 tris, flat-shaded low-poly",
+  "slot": "decorSmall"
+ },
+ {
+  "slot": "trainCar",
+  "biome": "snow",
+  "dir": "assets-src/sketchfab/pack/zombie-apocalypse-kit-free-b0806e",
+  "index": 30,
+  "rank": 1,
+  "what": "shipping container car"
+ },
+ {
+  "slot": "trainCar",
+  "biome": "candy",
+  "dir": "assets-src/sketchfab/pack/zombie-apocalypse-kit-free-b0806e",
+  "index": 30,
+  "rank": 1,
+  "what": "shipping container car"
+ }
+]

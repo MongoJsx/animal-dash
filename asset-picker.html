@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Asset Picker</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #fff; --ink: #1d1d1b; --muted: #6b6a65; --line: #e2e0da;
+    --accent: #ff7a1a; --ok: #1f8a4c; --warn: #b7791f; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #22221f; --ink: #f0efe9; --muted: #a09e96; --line: #34332f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); padding-bottom: 80px; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  h1 { margin: 0 0 8px; font-size: 18px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 99px; padding: 4px 10px; cursor: pointer; font: inherit; }
+  .chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  label.toggle { margin-left: auto; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  section { padding: 0 16px; }
+  h2 { font-size: 16px; margin: 24px 0 10px; }
+  h2 small { color: var(--muted); font-weight: normal; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 2px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .thumb { aspect-ratio: 16/10; background: var(--line) center/cover; cursor: zoom-in; position: relative; }
+  .thumb .anim { position: absolute; top: 6px; left: 6px; background: #000a; color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+  .body { padding: 8px 10px; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .lic { font-size: 11px; font-weight: 600; }
+  .lic.ok { color: var(--ok); } .lic.warn { color: var(--warn); } .lic.bad { color: var(--bad); }
+  .row { display: flex; gap: 6px; margin-top: auto; padding-top: 6px; }
+  .row button, .row a { flex: 1; text-align: center; font: inherit; font-size: 12px; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink); text-decoration: none; cursor: pointer; }
+  .card.sel .pick { background: var(--accent); border-color: var(--accent); color: #fff; }
+  footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line); padding: 12px 16px; display: flex; gap: 10px; align-items: center; }
+  footer button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+  footer button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  dialog { width: min(900px, 94vw); padding: 0; border: 0; border-radius: 12px; background: var(--card); color: var(--ink); }
+  dialog iframe { width: 100%; aspect-ratio: 16/10; border: 0; display: block; }
+  dialog .bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; }
+  .empty { color: var(--muted); padding: 40px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>เลือก Asset จาก Sketchfab</h1>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"><p class="empty">กำลังโหลด…</p></main>
+<footer>
+  <span id="count">เลือกแล้ว 0 ชิ้น</span>
+  <span style="flex:1"></span>
+  <button class="ghost" id="clear">ล้าง</button>
+  <button id="copy">คัดลอกรายการที่เลือก</button>
+</footer>
+<dialog id="viewer">
+  <div class="bar"><strong id="vname"></strong><button class="chip" id="vclose">ปิด</button></div>
+  <iframe id="vframe" allow="autoplay; fullscreen; xr-spatial-tracking"></iframe>
+</dialog>
+<script type="module">
+  const KEY = 'asset-picker:selected';
+  const load = () => { try { return new Map(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch { return new Map(); } };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...selected])); } catch {} };
+  const selected = load();
+  let activeCat = 'all';
+  let commercialOnly = true;
+
+  const licClass = (l) => /NonCommercial|NoDerivs/i.test(l) ? 'bad' : /ShareAlike|Standard|unknown/i.test(l) ? 'warn' : 'ok';
+  const licNote = { ok: '', warn: ' · เช็คเงื่อนไขก่อนใช้', bad: ' · ห้ามใช้ขาย/ดัดแปลง' };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const data = await fetch('/tools/asset-candidates.json').then((r) => r.json());
+  const all = data.categories.flatMap((c) => c.items.map((i) => ({ ...i, cat: c.id, catLabel: c.label })));
+
+  function renderFilters() {
+    const chips = [{ id: 'all', label: 'ทั้งหมด' }, ...data.categories];
+    document.getElementById('filters').innerHTML =
+      chips.map((c) => `<button class="chip ${c.id === activeCat ? 'on' : ''}" data-cat="${c.id}">${esc(c.label.replace(/^.*?: /, ''))}</button>`).join('') +
+      `<label class="toggle"><input type="checkbox" id="comm" ${commercialOnly ? 'checked' : ''}/> ซ่อน license ห้ามใช้เชิงพาณิชย์</label>`;
+  }
+
+  function render() {
+    const cats = data.categories.filter((c) => activeCat === 'all' || c.id === activeCat);
+    document.getElementById('main').innerHTML = cats.map((c) => {
+      const items = c.items.filter((i) => !commercialOnly || licClass(i.license) !== 'bad');
+      if (!items.length) return '';
+      return `<section><h2>${esc(c.label)} <small>${items.length} ชิ้น</small></h2><div class="grid">${items.map((i) => `
+        <div class="card ${selected.has(i.uid) ? 'sel' : ''}" data-uid="${i.uid}">
+          <div class="thumb" data-view="${i.uid}" style="background-image:url('${i.thumb}')">${i.animated ? '<span class="anim">มีอนิเมชัน</span>' : ''}</div>
+          <div class="body">
+            <div class="name" title="${esc(i.name)}">${esc(i.name)}</div>
+            <div class="meta">โดย ${esc(i.author)} · ${i.faces.toLocaleString()} faces · ♥ ${i.likes}</div>
+            <div class="lic ${licClass(i.license)}">${esc(i.license)}${licNote[licClass(i.license)]}</div>
+            <div class="row"><button class="pick" data-pick="${i.uid}">${selected.has(i.uid) ? '✓ เลือกแล้ว' : 'เลือก'}</button><a href="${i.url}" target="_blank" rel="noopener">Sketchfab ↗</a></div>
+          </div>
+        </div>`).join('')}</div></section>`;
+    }).join('') || '<p class="empty">ไม่มีรายการ</p>';
+    document.getElementById('count').textContent = `เลือกแล้ว ${selected.size} ชิ้น`;
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-cat],[data-pick],[data-view]');
+    if (!t) return;
+    if (t.dataset.cat) { activeCat = t.dataset.cat; renderFilters(); render(); }
+    if (t.dataset.pick) {
+      const item = all.find((i) => i.uid === t.dataset.pick);
+      selected.has(item.uid) ? selected.delete(item.uid) : selected.set(item.uid, { uid: item.uid, name: item.name, cat: item.cat, license: item.license, author: item.author, url: item.url });
+      save(); render();
+    }
+    if (t.dataset.view) {
+      const item = all.find((i) => i.uid === t.dataset.view);
+      document.getElementById('vname').textContent = item.name;
+      document.getElementById('vframe').src = `https://sketchfab.com/models/${item.uid}/embed?autostart=1&ui_theme=dark`;
+      document.getElementById('viewer').showModal();
+    }
+  });
+  document.addEventListener('change', (e) => { if (e.target.id === 'comm') { commercialOnly = e.target.checked; render(); } });
+  document.getElementById('vclose').onclick = () => { document.getElementById('viewer').close(); document.getElementById('vframe').src = 'about:blank'; };
+  document.getElementById('clear').onclick = () => { if (confirm('ล้างรายการที่เลือกทั้งหมด?')) { selected.clear(); save(); render(); } };
+  document.getElementById('copy').onclick = async () => {
+    const text = JSON.stringify([...selected.values()], null, 2);
+    try { await navigator.clipboard.writeText(text); alert(`คัดลอก ${selected.size} รายการแล้ว — วางในแชทได้เลย`); }
+    catch { prompt('คัดลอกข้อความนี้:', text); }
+  };
+
+  renderFilters();
+  render();
+</script>
+</body>
+</html>

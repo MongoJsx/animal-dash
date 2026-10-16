@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Animation Lab</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #20232a; font: 13px system-ui, sans-serif; color: #eee; }
+  canvas { display: block; }
+  #ui { position: fixed; top: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  #ui button { background: #333a46; color: #eee; border: 0; border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  #ui button.on { background: #ffb703; color: #222; }
+  #ui label { background: #000a; padding: 4px 8px; border-radius: 6px; }
+  body.capture #ui { display: none; }
+</style>
+</head>
+<body>
+<div id="ui"></div>
+<script type="module" src="/src/dev/animLab.ts"></script>
+</body>
+</html>

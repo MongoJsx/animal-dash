@@ -1,0 +1,43 @@
+[
+  {
+    "id": "luobotu",
+    "name": "กระต่ายหลัวโป",
+    "model": "/assets/characters/luobotu.glb"
+  },
+  {
+    "id": "pug_outfit",
+    "name": "ปั๊กฮู้ดดี้",
+    "model": "/assets/characters/pug_outfit.glb"
+  },
+  {
+    "id": "bojack_horseman_meshy",
+    "name": "ม้าแจ็ค",
+    "model": "/assets/characters/bojack_horseman_meshy.glb",
+    "anim": {
+      "armSpread": 6,
+      "armSwing": 0.5
+    }
+  },
+  {
+    "id": "snoop_dog_but_dog_style",
+    "name": "หมาแว่น",
+    "model": "/assets/characters/snoop_dog_but_dog_style.glb"
+  },
+  {
+    "id": "velkara",
+    "name": "เวลคาร่า",
+    "model": "/assets/characters/velkara.glb",
+    "anim": {
+      "armSpread": 8
+    }
+  },
+  {
+    "id": "big_brother_pig",
+    "name": "พี่หมู",
+    "model": "/assets/characters/big_brother_pig.glb",
+    "anim": {
+      "armSpread": 16,
+      "armSwing": 0.8
+    }
+  }
+]

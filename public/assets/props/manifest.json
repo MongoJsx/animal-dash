@@ -1,0 +1,1279 @@
+{
+  "obstacles": {
+    "lowbar": {
+      "village": [
+        {
+          "url": "/assets/props/lowbar-village-0.glb",
+          "size": [
+            3.25,
+            1.16,
+            0.25
+          ]
+        },
+        {
+          "url": "/assets/props/lowbar-village-32.glb",
+          "size": [
+            5.15,
+            1.12,
+            0.24
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/lowbar-village-0.glb",
+          "size": [
+            3.25,
+            1.16,
+            0.25
+          ],
+          "tint": "candy"
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/lowbar-village-0.glb",
+          "size": [
+            3.25,
+            1.16,
+            0.25
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/lowbar-snow-1.glb",
+          "size": [
+            1.18,
+            0.74,
+            0.18
+          ]
+        },
+        {
+          "url": "/assets/props/lowbar-snow-33.glb",
+          "size": [
+            1.2,
+            0.72,
+            0.21
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/lowbar-village-0.glb",
+          "size": [
+            3.25,
+            1.16,
+            0.25
+          ]
+        }
+      ]
+    },
+    "wall": {
+      "village": [
+        {
+          "url": "/assets/props/wall-village-2.glb",
+          "size": [
+            2.02,
+            2.02,
+            2.02
+          ]
+        },
+        {
+          "url": "/assets/props/wall-village-34.glb",
+          "size": [
+            2.04,
+            2.03,
+            2.06
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/wall-forest-3.glb",
+          "size": [
+            2.62,
+            2.99,
+            3.15
+          ]
+        },
+        {
+          "url": "/assets/props/wall-forest-35.glb",
+          "size": [
+            2.71,
+            3.21,
+            2.7
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/wall-candy-4.glb",
+          "size": [
+            0.06,
+            0.06,
+            0.06
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/wall-harbor-5.glb",
+          "size": [
+            3.7,
+            3.7,
+            3.7
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/wall-snow-6.glb",
+          "size": [
+            1.61,
+            2.32,
+            1.49
+          ]
+        },
+        {
+          "url": "/assets/props/wall-snow-36.glb",
+          "size": [
+            1.9,
+            1.7,
+            1.59
+          ]
+        }
+      ]
+    },
+    "hay": {
+      "village": [
+        {
+          "url": "/assets/props/hay-village-7.glb",
+          "size": [
+            1.58,
+            1.45,
+            1.08
+          ]
+        },
+        {
+          "url": "/assets/props/hay-harbor-9.glb",
+          "size": [
+            0.66,
+            0.66,
+            0.66
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/hay-forest-8.glb",
+          "size": [
+            1.4,
+            1.21,
+            1.24
+          ]
+        },
+        {
+          "url": "/assets/props/hay-forest-37.glb",
+          "size": [
+            1.7,
+            0.82,
+            0.99
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/hay-harbor-9.glb",
+          "size": [
+            0.66,
+            0.66,
+            0.66
+          ]
+        },
+        {
+          "url": "/assets/props/hay-harbor-38.glb",
+          "size": [
+            0.22,
+            0.23,
+            0.22
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/hay-snow-10.glb",
+          "size": [
+            1.45,
+            1.1,
+            1.61
+          ]
+        },
+        {
+          "url": "/assets/props/hay-forest-8.glb",
+          "size": [
+            1.4,
+            1.21,
+            1.24
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/wall-village-2.glb",
+          "size": [
+            2.02,
+            2.02,
+            2.02
+          ],
+          "tint": "candy"
+        }
+      ]
+    },
+    "trainCar": {
+      "harbor": [
+        {
+          "url": "/assets/props/trainCar-harbor-11.glb",
+          "size": [
+            2.57,
+            2.6,
+            5.71
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/trainCar-harbor-11.glb",
+          "size": [
+            2.57,
+            2.6,
+            5.71
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/trainCar-harbor-11.glb",
+          "size": [
+            2.57,
+            2.6,
+            5.71
+          ],
+          "tint": "candy"
+        }
+      ]
+    },
+    "oncoming": {
+      "village": [
+        {
+          "url": "/assets/props/oncoming-village-12.glb",
+          "size": [
+            1.25,
+            1.07,
+            1.92
+          ]
+        },
+        {
+          "url": "/assets/props/oncoming-village-39.glb",
+          "size": [
+            1.24,
+            0.81,
+            1.7
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/oncoming-village-12.glb",
+          "size": [
+            1.25,
+            1.07,
+            1.92
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/oncoming-village-12.glb",
+          "size": [
+            1.25,
+            1.07,
+            1.92
+          ]
+        }
+      ]
+    },
+    "rolling": {
+      "village": [
+        {
+          "url": "/assets/props/rolling-village-13.glb",
+          "size": [
+            1.23,
+            1.24,
+            1.23
+          ]
+        },
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        },
+        {
+          "url": "/assets/props/rolling-forest-40.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/rolling-harbor-15.glb",
+          "size": [
+            3.68,
+            5,
+            3.68
+          ]
+        },
+        {
+          "url": "/assets/props/rolling-village-13.glb",
+          "size": [
+            1.23,
+            1.24,
+            1.23
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        },
+        {
+          "url": "/assets/props/rolling-forest-40.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/rolling-forest-40.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ],
+          "tint": "candy"
+        }
+      ]
+    },
+    "shifter": {
+      "village": [
+        {
+          "url": "/assets/props/shifter-village-16.glb",
+          "size": [
+            2.01,
+            2.18,
+            2.1
+          ]
+        },
+        {
+          "url": "/assets/props/shifter-candy-17.glb",
+          "size": [
+            3.66,
+            2.43,
+            1.91
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/shifter-village-16.glb",
+          "size": [
+            2.01,
+            2.18,
+            2.1
+          ]
+        },
+        {
+          "url": "/assets/props/shifter-candy-17.glb",
+          "size": [
+            3.66,
+            2.43,
+            1.91
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/shifter-candy-17.glb",
+          "size": [
+            3.66,
+            2.43,
+            1.91
+          ],
+          "tint": "candy"
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/shifter-harbor-18.glb",
+          "size": [
+            2.87,
+            1.65,
+            1.56
+          ]
+        },
+        {
+          "url": "/assets/props/shifter-harbor-41.glb",
+          "size": [
+            2.93,
+            2.05,
+            1.8
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/shifter-snow-19.glb",
+          "size": [
+            1.02,
+            1.48,
+            0.86
+          ]
+        }
+      ]
+    },
+    "pendulumHead": {
+      "village": [
+        {
+          "url": "/assets/props/pendulumHead-village-20.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ]
+        },
+        {
+          "url": "/assets/props/pendulumHead-village-42.glb",
+          "size": [
+            1.72,
+            3.12,
+            1.72
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/pendulumHead-village-20.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ]
+        },
+        {
+          "url": "/assets/props/pendulumHead-village-42.glb",
+          "size": [
+            1.72,
+            3.12,
+            1.72
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/pendulumHead-village-20.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ],
+          "tint": "candy"
+        },
+        {
+          "url": "/assets/props/pendulumHead-village-42.glb",
+          "size": [
+            1.72,
+            3.12,
+            1.72
+          ],
+          "tint": "candy"
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/pendulumHead-village-20.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ]
+        },
+        {
+          "url": "/assets/props/pendulumHead-village-42.glb",
+          "size": [
+            1.72,
+            3.12,
+            1.72
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/pendulumHead-village-20.glb",
+          "size": [
+            1.22,
+            1.23,
+            1.22
+          ]
+        },
+        {
+          "url": "/assets/props/pendulumHead-village-42.glb",
+          "size": [
+            1.72,
+            3.12,
+            1.72
+          ]
+        }
+      ]
+    },
+    "spikes": {
+      "village": [
+        {
+          "url": "/assets/props/spikes-village-21.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        },
+        {
+          "url": "/assets/props/spikes-village-43.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/spikes-village-21.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        },
+        {
+          "url": "/assets/props/spikes-village-43.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/spikes-village-21.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ],
+          "tint": "candy"
+        },
+        {
+          "url": "/assets/props/spikes-village-43.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ],
+          "tint": "candy"
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/spikes-village-21.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        },
+        {
+          "url": "/assets/props/spikes-village-43.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/spikes-village-21.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        },
+        {
+          "url": "/assets/props/spikes-village-43.glb",
+          "size": [
+            2,
+            0.82,
+            2
+          ]
+        }
+      ]
+    },
+    "drop": {
+      "village": [
+        {
+          "url": "/assets/props/drop-village-22.glb",
+          "size": [
+            1.23,
+            1.24,
+            1.23
+          ]
+        },
+        {
+          "url": "/assets/props/hay-harbor-9.glb",
+          "size": [
+            0.66,
+            0.66,
+            0.66
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/hay-snow-10.glb",
+          "size": [
+            1.45,
+            1.1,
+            1.61
+          ]
+        },
+        {
+          "url": "/assets/props/drop-forest-44.glb",
+          "size": [
+            1.31,
+            1.16,
+            1.39
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/drop-harbor-23.glb",
+          "size": [
+            3.68,
+            5,
+            3.68
+          ]
+        },
+        {
+          "url": "/assets/props/hay-harbor-9.glb",
+          "size": [
+            0.66,
+            0.66,
+            0.66
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/hay-snow-10.glb",
+          "size": [
+            1.45,
+            1.1,
+            1.61
+          ]
+        }
+      ]
+    },
+    "sweeper": {
+      "village": [
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/rolling-forest-14.glb",
+          "size": [
+            1.09,
+            0.4,
+            0.48
+          ]
+        }
+      ]
+    },
+    "bounce": {
+      "village": [
+        {
+          "url": "/assets/props/bounce-village-24.glb",
+          "size": [
+            1.51,
+            1.33,
+            1.51
+          ]
+        },
+        {
+          "url": "/assets/props/bounce-village-45.glb",
+          "size": [
+            300,
+            53.23,
+            300
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/bounce-village-24.glb",
+          "size": [
+            1.51,
+            1.33,
+            1.51
+          ]
+        },
+        {
+          "url": "/assets/props/bounce-village-45.glb",
+          "size": [
+            300,
+            53.23,
+            300
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/bounce-village-24.glb",
+          "size": [
+            1.51,
+            1.33,
+            1.51
+          ],
+          "tint": "candy"
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/bounce-village-24.glb",
+          "size": [
+            1.51,
+            1.33,
+            1.51
+          ]
+        },
+        {
+          "url": "/assets/props/bounce-village-45.glb",
+          "size": [
+            300,
+            53.23,
+            300
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/bounce-village-24.glb",
+          "size": [
+            1.51,
+            1.33,
+            1.51
+          ]
+        },
+        {
+          "url": "/assets/props/bounce-village-45.glb",
+          "size": [
+            300,
+            53.23,
+            300
+          ]
+        }
+      ]
+    }
+  },
+  "decor": {
+    "large": {
+      "village": [
+        {
+          "url": "/assets/props/decorLarge-village-25.glb",
+          "size": [
+            15.6,
+            12.91,
+            10.67
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-village-46.glb",
+          "size": [
+            15.64,
+            35.11,
+            25.87
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-village-52.glb",
+          "size": [
+            2.67,
+            3.36,
+            2.78
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-village-61.glb",
+          "size": [
+            11.02,
+            15.98,
+            13.58
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-village-71.glb",
+          "size": [
+            3.02,
+            2.83,
+            2.73
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-village-79.glb",
+          "size": [
+            9.13,
+            16.51,
+            9.85
+          ]
+        }
+      ],
+      "forest": [
+        {
+          "url": "/assets/props/decorLarge-forest-26.glb",
+          "size": [
+            2.7,
+            3.31,
+            2.01
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-snow-29.glb",
+          "size": [
+            1.82,
+            4.24,
+            1.79
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-forest-53.glb",
+          "size": [
+            4.12,
+            6.44,
+            4.12
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-forest-62.glb",
+          "size": [
+            2.26,
+            3.02,
+            1.82
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-forest-72.glb",
+          "size": [
+            3.44,
+            3.94,
+            7.28
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-forest-80.glb",
+          "size": [
+            8.21,
+            9.31,
+            8.48
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/decorLarge-candy-27.glb",
+          "size": [
+            0.08,
+            0.15,
+            0.09
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-candy-47.glb",
+          "size": [
+            0.04,
+            0.09,
+            0.04
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-candy-63.glb",
+          "size": [
+            0.05,
+            0.11,
+            0.05
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-candy-73.glb",
+          "size": [
+            3.38,
+            1.51,
+            0.82
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-forest-53.glb",
+          "size": [
+            4.12,
+            6.44,
+            4.12
+          ],
+          "tint": "candy"
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/decorLarge-harbor-28.glb",
+          "size": [
+            4.26,
+            10.91,
+            19.36
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-harbor-48.glb",
+          "size": [
+            3.79,
+            3.48,
+            5.37
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-harbor-54.glb",
+          "size": [
+            3.17,
+            5.74,
+            3.02
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-harbor-64.glb",
+          "size": [
+            3.17,
+            9.56,
+            2.89
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-harbor-74.glb",
+          "size": [
+            17.82,
+            13.2,
+            6.22
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-harbor-81.glb",
+          "size": [
+            1.59,
+            3.25,
+            1.87
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/decorLarge-snow-29.glb",
+          "size": [
+            1.82,
+            4.24,
+            1.79
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-snow-49.glb",
+          "size": [
+            8.54,
+            16.57,
+            8.36
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-snow-55.glb",
+          "size": [
+            5.74,
+            13.24,
+            5.74
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-snow-65.glb",
+          "size": [
+            5.6,
+            8.66,
+            5.3
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-snow-75.glb",
+          "size": [
+            5.01,
+            4.53,
+            7.3
+          ]
+        },
+        {
+          "url": "/assets/props/decorLarge-snow-82.glb",
+          "size": [
+            158.37,
+            463.1,
+            158.49
+          ]
+        }
+      ]
+    },
+    "small": {
+      "forest": [
+        {
+          "url": "/assets/props/decorSmall-forest-30.glb",
+          "size": [
+            0.65,
+            0.53,
+            0.68
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-forest-50.glb",
+          "size": [
+            0.82,
+            0.68,
+            0.79
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-forest-57.glb",
+          "size": [
+            2.36,
+            1.49,
+            2.4
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-forest-67.glb",
+          "size": [
+            1.15,
+            1.15,
+            1.15
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-forest-77.glb",
+          "size": [
+            1.07,
+            0.52,
+            0.63
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-forest-84.glb",
+          "size": [
+            1.65,
+            0.46,
+            1.64
+          ]
+        }
+      ],
+      "candy": [
+        {
+          "url": "/assets/props/decorSmall-candy-31.glb",
+          "size": [
+            0.04,
+            0.09,
+            0.04
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-candy-51.glb",
+          "size": [
+            0.05,
+            0.11,
+            0.05
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-candy-58.glb",
+          "size": [
+            0.08,
+            0.15,
+            0.09
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-candy-68.glb",
+          "size": [
+            0.81,
+            1.38,
+            0.81
+          ],
+          "tint": "candy"
+        },
+        {
+          "url": "/assets/props/decorSmall-candy-78.glb",
+          "size": [
+            1.01,
+            1.08,
+            1.01
+          ],
+          "tint": "candy"
+        }
+      ],
+      "village": [
+        {
+          "url": "/assets/props/decorSmall-village-56.glb",
+          "size": [
+            0.38,
+            2,
+            1.09
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-village-66.glb",
+          "size": [
+            0.52,
+            0.81,
+            0.6
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-village-76.glb",
+          "size": [
+            0.36,
+            2.05,
+            1.86
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-village-83.glb",
+          "size": [
+            0.57,
+            0.61,
+            0.57
+          ]
+        }
+      ],
+      "harbor": [
+        {
+          "url": "/assets/props/decorSmall-harbor-59.glb",
+          "size": [
+            0.6,
+            0.68,
+            0.54
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-harbor-69.glb",
+          "size": [
+            2.04,
+            2.45,
+            2.85
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-village-56.glb",
+          "size": [
+            0.38,
+            2,
+            1.09
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-harbor-85.glb",
+          "size": [
+            0.6,
+            0.6,
+            0.45
+          ]
+        }
+      ],
+      "snow": [
+        {
+          "url": "/assets/props/decorSmall-snow-60.glb",
+          "size": [
+            1.59,
+            0.83,
+            1.49
+          ]
+        },
+        {
+          "url": "/assets/props/decorSmall-snow-70.glb",
+          "size": [
+            2.02,
+            2.02,
+            2.02
+          ]
+        }
+      ]
+    }
+  }
+}
