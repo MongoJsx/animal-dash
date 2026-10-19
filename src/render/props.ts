@@ -8,7 +8,7 @@ import { assetUrl } from '../core/asset.ts';
 import type { BiomeId } from '../world/biomes.ts';
 import type { Obstacle } from '../world/obstacles.ts';
 import {
-  fitScale, obstacleEntry, propManifest, setPropManifest, type FitOpts, type PropEntry,
+  KIND_SLOT, fitScale, obstacleEntry, propManifest, setPropManifest, type FitOpts, type PropEntry,
 } from '../world/propFit.ts';
 
 export interface Template {
@@ -19,6 +19,12 @@ export interface Template {
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const templates = new Map<string, Template>();
 const tinted = new Map<string, Template>();
+
+/** Manifest groups the game still uses (old slots, e.g. train cars, are skipped). */
+const usedObstacleGroups = (m: ReturnType<typeof propManifest>) => {
+  const slots = new Set(Object.values(KIND_SLOT));
+  return Object.entries(m.obstacles).filter(([slot]) => slots.has(slot as never)).map(([, g]) => g);
+};
 
 const PASTELS = [0xff8fab, 0xffc8dd, 0xa0e7e5, 0xfff1a8, 0xb8f2b0, 0xcdb4db, 0xffd6a5];
 
@@ -96,7 +102,7 @@ export async function loadProps(onProgress?: (done: number, total: number) => vo
   }
   const m = propManifest();
   const sizes = new Map<string, PropEntry['size']>();
-  for (const group of [...Object.values(m.obstacles), m.decor.large, m.decor.small]) {
+  for (const group of [...usedObstacleGroups(m), m.decor.large, m.decor.small]) {
     for (const list of Object.values(group ?? {})) list?.forEach((e) => sizes.set(e.url, e.size));
   }
   const urls = [...sizes.keys()];
@@ -175,7 +181,7 @@ export async function warmUpProps(renderer: THREE.WebGLRenderer, camera: THREE.C
   const group = new THREE.Group();
   const all = new Set<Template>();
   const m = propManifest();
-  for (const g of [...Object.values(m.obstacles), m.decor.large, m.decor.small]) {
+  for (const g of [...usedObstacleGroups(m), m.decor.large, m.decor.small]) {
     for (const list of Object.values(g ?? {})) list?.forEach((e) => { const t = resolve(e); if (t) all.add(t); });
   }
   for (const t of all) {

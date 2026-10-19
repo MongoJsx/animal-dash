@@ -1,6 +1,6 @@
 # Animal Dash (ชื่อชั่วคราว)
 
-เกมวิ่งแข่งสัตว์ครึ่งคน แนว Tales Runner × Subway Surfers บนมือถือแนวตั้ง — Three.js + Vite + TypeScript
+เกมวิ่งแข่งสัตว์ครึ่งคน 3 เลน ข้ามประเทศไทย จีน ญี่ปุ่น บนมือถือแนวตั้ง — Three.js + Vite + TypeScript
 
 ## รัน
 ```bash
@@ -10,6 +10,8 @@ npm run dev          # http://localhost:5173  (เปิดบนมือถื
 
 URL พารามิเตอร์สำหรับทดสอบ (dev):
 - `?seed=42` — แทร็กเดิมทุกครั้ง
+- `?map=thai` / `china` / `japan` / `fable` — เลือกแมพ
+- `?at=1200&nocount` — เริ่มกลางแทร็ก ข้ามการออกตัว · `?hold` — ค้างท่า "ระวัง" ไว้ถ่ายภาพ · `?dash` — เกจแดชเต็มตั้งแต่เริ่ม
 - `?char=luobotu` — เลือกตัวละคร
 - `?autostart` — ข้ามเมนู
 - `?bot` — ให้บอทวิ่งหลบเอง
@@ -25,6 +27,7 @@ Deploy: push ขึ้น `main` แล้ว GitHub Actions (`.github/workflows
 | คำสั่ง | ทำอะไร |
 |---|---|
 | `npm run check:track` | ตรวจ 300 seeds: ทุกจุดมีทางผ่าน, seed เดิมได้แทร็กเดิม |
+| `npm run check:contacts` | จำลอง 60 การแข่ง (เบียด + แดช): นักวิ่งชนกันได้แต่ไม่ซ้อนทับกัน |
 | `npm run assets:search` | ค้นหา asset บน Sketchfab → `asset-picker.html` |
 | `npm run assets:download` | ดาวน์โหลด asset ที่เลือก (ต้องมี `SKETCHFAB_TOKEN` ใน `.env.local`) |
 | `npm run assets:catalog` | แตกแพ็คเป็นชิ้น + ทำภาพรวมมีเลขกำกับ (`assets-src/sketchfab/*/*/sheet_labeled.png`) |

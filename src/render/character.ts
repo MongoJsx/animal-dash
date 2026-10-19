@@ -17,9 +17,10 @@ export interface CharacterDef {
 
 export type AnimState =
   | 'idle' | 'run' | 'jump' | 'slide' | 'stumble' | 'fall'
-  | 'strafe_left' | 'strafe_right' | 'victory' | 'defeat';
+  | 'strafe_left' | 'strafe_right' | 'victory' | 'defeat'
+  | 'marks' | 'set' | 'burst'; // sprint start: on your marks, set, drive out
 
-const ONE_SHOT: AnimState[] = ['jump', 'slide', 'stumble', 'fall', 'strafe_left', 'strafe_right'];
+const ONE_SHOT: AnimState[] = ['jump', 'slide', 'stumble', 'fall', 'strafe_left', 'strafe_right', 'burst'];
 const HEIGHT = 1.7;
 const RUN_CLIP_SPEED = 9; // m/s the run clip looks right at
 
@@ -44,6 +45,11 @@ function loadModel(url: string) {
     modelCache.set(url, p);
   }
   return p;
+}
+
+/** Start fetching every runner so the start line is full when the race begins. */
+export function preloadCharacters(defs: CharacterDef[]) {
+  for (const d of defs) loadModel(d.model).catch(() => {});
 }
 
 /** Shared Mixamo clips, or null until animations have been made. */
@@ -81,6 +87,7 @@ export class CharacterView {
   private procedural: AnimState = 'idle';
   private procTime = 0;
   private lean = 0;
+  private kickRoll = 0;
   readonly ready: Promise<void>;
 
   private materials: THREE.Material[] = [];
@@ -97,6 +104,11 @@ export class CharacterView {
       this.root.add(blob);
     }
     this.ready = this.load(def);
+  }
+
+  /** Jolt from a shoulder bump or a ram: the body rocks with the push. */
+  kick(dir: number) {
+    this.kickRoll = 0.38 * Math.sign(dir);
   }
 
   /** Fade out (e.g. a rival between the camera and the player). */
@@ -170,6 +182,10 @@ export class CharacterView {
         this.actions.set(c.name as AnimState, action);
       }
     } else if (hips && ProcRig.detect(model)) {
+      // Undo any stand-in pose applied while loading before measuring the rig.
+      this.pivot.position.set(0, 0, 0);
+      this.pivot.rotation.set(0, 0, 0);
+      this.pivot.scale.set(1, 1, 1);
       this.rig = new ProcRig(model, this.pivot, def.anim);
     }
     this.play(this.current ?? 'idle', 0);
@@ -188,7 +204,7 @@ export class CharacterView {
     this.procTime = 0;
     this.rig?.play(state, duration);
     if (!this.mixer) return;
-    const next = this.actions.get(state) ?? this.actions.get(state.startsWith('strafe') ? 'run' : 'idle');
+    const next = this.actions.get(state) ?? this.actions.get(state.startsWith('strafe') || state === 'burst' ? 'run' : 'idle');
     if (!next) return;
     for (const a of this.actions.values()) if (a !== next) a.fadeOut(fade);
     next.reset();
@@ -204,8 +220,15 @@ export class CharacterView {
   update(dt: number, speed: number, laneVelocity: number) {
     // Lean into lane changes for both rigged and unrigged characters.
     this.lean += (-laneVelocity * 0.06 - this.lean) * Math.min(1, dt * 12);
-    this.pivot.rotation.z = this.lean;
+    this.kickRoll *= Math.exp(-dt * 7);
+    this.pivot.rotation.z = this.lean + this.kickRoll;
 
+    if (this.mixer || this.rig) {
+      // The stand-in pose only applies to unrigged models.
+      this.pivot.position.set(0, 0, 0);
+      this.pivot.rotation.x = this.pivot.rotation.y = 0;
+      this.pivot.scale.set(1, 1, 1);
+    }
     if (this.mixer) {
       const run = this.actions.get('run');
       if (run && this.current === 'run') run.timeScale = THREE.MathUtils.clamp(speed / RUN_CLIP_SPEED, 0.8, 1.8);
@@ -229,11 +252,20 @@ export class CharacterView {
     p.scale.set(1, 1, 1);
     switch (this.procedural) {
       case 'run':
+      case 'burst':
       case 'strafe_left':
       case 'strafe_right':
         p.position.y = Math.abs(Math.sin(this.phase)) * 0.14;
-        p.rotation.x = -0.12;
+        p.rotation.x = this.procedural === 'burst' ? -0.5 * Math.max(0, 1 - this.procTime) - 0.12 : -0.12;
         p.rotation.y = Math.sin(this.phase) * 0.12;
+        break;
+      case 'marks':
+        p.rotation.x = -0.9;
+        p.position.y = -0.35;
+        break;
+      case 'set':
+        p.rotation.x = -1.05;
+        p.position.y = -0.2;
         break;
       case 'jump': {
         const k = Math.min(1, this.procTime / 0.35);

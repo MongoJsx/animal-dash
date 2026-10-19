@@ -6,12 +6,16 @@ import * as THREE from 'three';
 import { LANE_WIDTH, laneX } from '../config.ts';
 import { BIOMES, type BiomeId, type Palette } from '../world/biomes.ts';
 import {
-  DROP, PENDULUM, SWEEPER, TRAIN_RAMP, dropProgress, movingD, pendulumAngle, shifterX,
+  DROP, PENDULUM, SWEEPER, dropProgress, movingD, pendulumAngle, shifterX,
   spikeLift, sweeperAngle, type Obstacle,
 } from '../world/obstacles.ts';
 import { fitScale, fitTarget } from '../world/propFit.ts';
+import { countryMoving, countryOf, countryStatic } from './countrySkins.ts';
 import { fitted, fittedHeight, obstacleProp } from './props.ts';
 import { Shapes, flatMaterial, shadowMaterial } from './shapes.ts';
+
+/** See-through copy for obstacles between the camera and the runner. */
+const ghostMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.22, depthWrite: false });
 
 const W = LANE_WIDTH - 0.3; // visual width of a one-lane obstacle
 const TRACK_W = LANE_WIDTH * 3;
@@ -115,34 +119,6 @@ function hay(s: Shapes, b: BiomeId, p: Palette, len: number) {
   }
 }
 
-const trainCars = (len: number, ramp: boolean) => Math.max(1, Math.round((len - (ramp ? TRAIN_RAMP : 0)) / 9));
-
-function train(s: Shapes, p: Palette, len: number, ramp: boolean, cars: boolean) {
-  const start = ramp ? TRAIN_RAMP : 0;
-  const body = len - start;
-  const count = trainCars(len, ramp);
-  const carLen = body / count;
-  for (let i = 0; cars && i < count; i++) {
-    const z = -(start + carLen * i + carLen / 2);
-    s.box(i % 2 ? p.a : p.c, 0, 1.45, z, W, 2.2, carLen - 0.5);
-    s.box(p.b, 0, 2.6, z, W + 0.1, 0.12, carLen - 0.4);
-    s.box(0xfefae0, -W / 2 - 0.01, 1.7, z, 0.02, 0.6, carLen - 2);
-    s.box(0xfefae0, W / 2 + 0.01, 1.7, z, 0.02, 0.6, carLen - 2);
-    for (const wz of [-carLen / 2 + 1.2, carLen / 2 - 1.2]) {
-      s.add(new THREE.CylinderGeometry(0.35, 0.35, W + 0.1, 10), p.d, 0, 0.35, z + wz, 0, 0, Math.PI / 2);
-    }
-    if (i > 0) s.box(p.d, 0, 0.8, z + carLen / 2, 0.3, 0.3, 0.6);
-  }
-  if (cars) s.box(p.d, 0, 1.6, -start - 0.02, W - 0.4, 0.8, 0.05); // front window
-  if (ramp) {
-    const slope = Math.atan2(2.6, TRAIN_RAMP);
-    const hyp = Math.hypot(2.6, TRAIN_RAMP);
-    s.add(new THREE.BoxGeometry(W, 0.15, hyp), p.b, 0, 1.3, -TRAIN_RAMP / 2, slope);
-    s.box(p.d, -W / 2 + 0.05, 0.65, -TRAIN_RAMP * 0.7, 0.1, 1.3, TRAIN_RAMP * 0.55);
-    s.box(p.d, W / 2 - 0.05, 0.65, -TRAIN_RAMP * 0.7, 0.1, 1.3, TRAIN_RAMP * 0.55);
-  }
-}
-
 function cart(s: Shapes, b: BiomeId, p: Palette, len: number) {
   const z = -len / 2;
   if (b === 'forest') {
@@ -164,13 +140,13 @@ function cart(s: Shapes, b: BiomeId, p: Palette, len: number) {
 
 function staticGeometry(o: Obstacle, modelled: boolean): THREE.BufferGeometry | null {
   const p = BIOMES[o.biome];
-  const k = `${o.kind}|${o.biome}|${o.length.toFixed(1)}|${o.ramp}|${modelled}`;
+  const k = `${o.kind}|${o.biome}|${o.length.toFixed(1)}|${modelled}`;
+  if (countryOf(o)) return cached(k, (s) => { countryStatic(o, s); });
   switch (o.kind) {
     case 'lowbar': return modelled ? null : cached(k, (s) => lowbar(s, o.biome, p));
     case 'highbar': return cached(k, (s) => highbar(s, o.biome, p, !modelled));
     case 'wall': return modelled ? null : cached(k, (s) => wall(s, o.biome, p, o.length));
     case 'hay': return modelled ? null : cached(k, (s) => hay(s, o.biome, p, o.length));
-    case 'train': return cached(k, (s) => train(s, p, o.length, o.ramp, !modelled));
     case 'gap': return cached(k, (s) => {
       const water = o.biome === 'harbor' || o.biome === 'village' ? 0x2a6f97 : o.biome === 'candy' ? 0x5c3a21 : o.biome === 'snow' ? 0x89c2d9 : 0x3d2b1f;
       s.box(water, 0, -0.02, -o.length / 2, TRACK_W + 0.6, 0.06, o.length);
@@ -204,6 +180,7 @@ function staticGeometry(o: Obstacle, modelled: boolean): THREE.BufferGeometry | 
 function movingGeometry(o: Obstacle, armOnly = false): THREE.BufferGeometry | null {
   const p = BIOMES[o.biome];
   const k = `${o.kind}|${o.biome}|${o.length.toFixed(1)}|moving|${armOnly}`;
+  if (countryOf(o)) return cached(k, (s) => { countryMoving(o, s, armOnly); });
   switch (o.kind) {
     case 'oncoming': return cached(k, (s) => cart(s, o.biome, p, o.length));
     case 'rolling': return cached(k, (s) => {
@@ -235,14 +212,17 @@ function movingGeometry(o: Obstacle, armOnly = false): THREE.BufferGeometry | nu
       else s.cyl(p.c, 0, 0, 0, 0.45, 0.7, 10, 0.6).sphere(p.b, 0, 0.9, 0, 0.45);
     });
     case 'sweeper': return cached(k, (s) => {
-      s.box(p.c, 0, 0, 0, SWEEPER.half * 2, 0.35, 0.35);
-      for (let i = -3; i <= 3; i += 2) s.box(0xffffff, (i / 4) * SWEEPER.half, 0, 0, 0.35, 0.37, 0.37);
+      const w = SWEEPER.pole * 2;
+      s.box(p.c, 0, 0, 0, SWEEPER.half * 2, w, w);
+      for (let i = -3; i <= 3; i += 2) s.box(0xffffff, (i / 4) * SWEEPER.half, 0, 0, 0.35, w + 0.02, w + 0.02);
     });
     default: return null;
   }
 }
 
 const shadowGeo = new THREE.CircleGeometry(0.8, 16).rotateX(-Math.PI / 2);
+const sweepRing = new THREE.RingGeometry(SWEEPER.half - 0.28, SWEEPER.half + 0.05, 64).rotateX(-Math.PI / 2);
+const sweepMaterial = new THREE.MeshBasicMaterial({ color: 0xffc300, transparent: true, opacity: 0.75, depthWrite: false });
 
 /** Centre a fitted model on its own middle so it can spin in place. */
 function spinning(model: THREE.Object3D, h: number) {
@@ -256,9 +236,7 @@ export class ObstacleView {
   readonly root = new THREE.Group();
   private moving: THREE.Object3D | null = null;
   private shadow: THREE.Mesh | null = null;
-  private knock = 0; // seconds since the player smashed it
-  private knockDir = 1;
-  private knockX = 0;
+  private pop = 0; // seconds since it was smashed (it pops and vanishes)
   private spinRadius = 0.55; // rolling: height of the spin axis
   private spikeHeight = 0.85;
 
@@ -274,17 +252,7 @@ export class ObstacleView {
     const st = staticGeometry(o, !!prop && o.kind !== 'spikes' && o.kind !== 'pendulum' && o.kind !== 'sweeper');
     if (st) this.root.add(meshOf(st));
 
-    if (prop && o.kind === 'train') {
-      // Cars fill their whole slot so the solid train box has no invisible gaps.
-      const start = o.ramp ? TRAIN_RAMP : 0;
-      const count = trainCars(o.length, o.ramp);
-      const carLen = (o.length - start) / count;
-      for (let i = 0; i < count; i++) {
-        const car = fitted(prop, W, 2.58, carLen - 0.15, { centered: true, stretchDepthFree: true });
-        car.position.z = -(start + carLen * i + carLen / 2);
-        this.root.add(car);
-      }
-    } else if (prop && fit) {
+    if (prop && fit) {
       const model = fitted(prop, fit.w, fit.h, fit.d, fit.opts);
       const h = fittedHeight(prop, fit.w, fit.h, fit.d, fit.opts);
       switch (o.kind) {
@@ -326,6 +294,13 @@ export class ObstacleView {
       this.moving = pivot;
     }
     if (this.moving) this.root.add(this.moving);
+    if (o.kind === 'sweeper') {
+      // The circle the bar sweeps, painted on the ground: seen long before the bar.
+      const ring = new THREE.Mesh(sweepRing, sweepMaterial);
+      ring.position.set(0, 0.035, -o.length / 2);
+      ring.renderOrder = 1;
+      this.root.add(ring);
+    }
     if (o.kind === 'drop') {
       this.shadow = new THREE.Mesh(shadowGeo, shadowMaterial.clone());
       this.shadow.position.set(0, 0.03, -o.length / 2);
@@ -334,11 +309,28 @@ export class ObstacleView {
     this.update(0, 0);
   }
 
-  /** Called once when the player smashes through it. */
-  smash(fromX: number) {
-    if (this.o.kind === 'gap' || this.o.kind === 'slow' || this.o.kind === 'train' || this.o.kind === 'bounce') return;
-    this.knock = 0.0001;
-    this.knockDir = fromX <= this.root.position.x ? 1 : -1;
+  private ghosted = false;
+
+  /** Fade procedural parts once the runner is past, so they don't block the view. */
+  setGhost(on: boolean) {
+    if (on === this.ghosted) return;
+    this.ghosted = on;
+    this.root.traverse((m) => {
+      const mesh = m as THREE.Mesh;
+      if (!mesh.isMesh || mesh === this.shadow) return;
+      if (mesh.material === flatMaterial || mesh.material === ghostMaterial) {
+        mesh.material = on ? ghostMaterial : flatMaterial;
+        mesh.castShadow = !on;
+      } else {
+        mesh.visible = !on;
+      }
+    });
+  }
+
+  /** Called once when it is smashed: a quick pop, then it's gone. */
+  smash() {
+    if (this.o.kind === 'gap' || this.o.kind === 'slow' || this.o.kind === 'bounce') return;
+    this.pop = 0.0001;
   }
 
   update(t: number, dt: number) {
@@ -396,15 +388,11 @@ export class ObstacleView {
       }
       default: break;
     }
-    if (this.knock > 0) {
-      // Smashed obstacles tumble off the track instead of blocking it.
-      this.knock += dt;
-      const k = this.knock;
-      this.knockX += this.knockDir * 9 * dt;
-      this.root.position.x = (o.kind === 'shifter' || o.kind === 'pendulum' || o.kind === 'sweeper' ? 0 : laneX(o.lane)) + this.knockX;
-      this.root.position.y = Math.max(-3, 5 * k - 12 * k * k);
-      this.root.rotation.z = -this.knockDir * k * 6;
-      this.root.visible = k < 1.2;
+    if (this.pop > 0) {
+      this.pop += dt;
+      const k = this.pop / 0.18;
+      this.root.scale.setScalar(k < 0.3 ? 1 + k * 0.5 : Math.max(0, 1.15 * (1 - (k - 0.3) / 0.7)));
+      this.root.visible = k < 1;
     }
   }
 }

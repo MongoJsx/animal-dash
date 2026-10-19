@@ -2,8 +2,8 @@
 // with tier gating, cooldowns so nothing repeats back to back, and breathers.
 import { BIOME_LENGTH, FINISH_CLEAR, RACE_LENGTH, START_CLEAR, baseSpeed } from '../config.ts';
 import { Rng } from '../core/rng.ts';
-import { biomeAt, pickBiomes, type BiomeId } from './biomes.ts';
-import { platformOf, type Kind, type Obstacle, type Platform } from './obstacles.ts';
+import { biomeAt, pickBiomes, type BiomeId, type MapId } from './biomes.ts';
+import type { Kind, Obstacle } from './obstacles.ts';
 
 type Lane = -1 | 0 | 1;
 const LANES: Lane[] = [-1, 0, 1];
@@ -13,7 +13,6 @@ interface Part {
   lane?: Lane;
   at?: number; // offset from the row start
   length?: number;
-  ramp?: boolean;
   phase?: number;
   period?: number;
   speed?: number;
@@ -54,21 +53,23 @@ const PATTERNS: Pattern[] = [
     } },
 
   // ── Tier 2: longer reads, movement, floor tricks ─────────────────────
-  { id: 'train-ramp', tier: 2, weight: 3, main: 'train',
+  { id: 'market-alley', tier: 2, weight: 3, main: 'wall',
     build: (r) => {
+      // Weave through stalls, then duck under a banner across the street.
       const [a, b, c] = others(r, 3);
       return [
-        { kind: 'train', lane: a, length: 30, ramp: true },
-        { kind: 'train', lane: b, length: 22, at: 4 },
-        { kind: 'highbar', lane: c, at: 14 },
+        { kind: 'wall', lane: a, length: 1.6 }, { kind: 'hay', lane: b, length: 1.4 },
+        { kind: 'wall', lane: c, at: 11, length: 1.6 }, { kind: 'lowbar', lane: a, at: 11 },
+        ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 22 })),
       ];
     } },
-  { id: 'train-corridor', tier: 2, weight: 2, main: 'train',
+  { id: 'stampede', tier: 2, weight: 2, main: 'oncoming',
     build: (r) => {
-      const free = r.pick(LANES);
-      const parts: Part[] = LANES.filter((l) => l !== free).map((lane) => ({ kind: 'train', lane, length: 26, ramp: r.chance(0.3) }));
-      parts.push({ kind: 'lowbar', lane: free, at: 8 }, { kind: 'highbar', lane: free, at: 19 });
-      return parts;
+      const [a, b] = others(r, 2);
+      return [
+        { kind: 'oncoming', lane: a, length: 3.2, speed: r.range(6, 8) },
+        { kind: 'oncoming', lane: b, at: 14, length: 3.2, speed: r.range(6, 8) },
+      ];
     } },
   { id: 'oncoming', tier: 2, weight: 2.5, main: 'oncoming',
     build: (r) => {
@@ -116,12 +117,13 @@ const PATTERNS: Pattern[] = [
   // ── Tier 4: combos ───────────────────────────────────────────────────
   { id: 'gap-then-slide', tier: 4, weight: 2, main: 'gap',
     build: () => [{ kind: 'gap', length: 4 }, ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 14 }))] },
-  { id: 'roof-run', tier: 4, weight: 2, main: 'train',
+  { id: 'gauntlet', tier: 4, weight: 2, main: 'wall',
     build: (r) => {
-      const ride = r.pick(LANES);
+      const [a, b] = others(r, 2);
       return [
-        ...LANES.map((lane): Part => ({ kind: 'train', lane, length: lane === ride ? 34 : 30, ramp: lane === ride, at: lane === ride ? 0 : 4 })),
-        ...LANES.map((lane): Part => ({ kind: 'lowbar', lane, at: 40 })),
+        { kind: 'wall', lane: a, length: 1.6 }, { kind: 'oncoming', lane: b, length: 3.2, speed: 7 },
+        ...LANES.map((lane): Part => ({ kind: 'lowbar', lane, at: 16 })),
+        ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 27 })),
       ];
     } },
   { id: 'drop-shifter', tier: 4, weight: 1.5, main: 'shifter',
@@ -146,15 +148,15 @@ const GATE_CLEAR = 14;
 
 export interface Track {
   seed: number;
+  map: MapId;
   biomes: BiomeId[];
   obstacles: Obstacle[]; // sorted by d
-  platforms: Platform[];
   rows: { d0: number; d1: number }[]; // span of each pattern row
 }
 
-export function buildTrack(seed: number): Track {
+export function buildTrack(seed: number, map: MapId = 'fable'): Track {
   const rng = new Rng(seed);
-  const biomes = pickBiomes(rng);
+  const biomes = pickBiomes(rng, map);
   const obstacles: Obstacle[] = [];
   const rows: { d0: number; d1: number }[] = [];
   const recent: string[] = [];
@@ -191,7 +193,7 @@ export function buildTrack(seed: number): Track {
       const od = d + (p.at ?? 0);
       obstacles.push({
         id: id++, row: rows.length, kind: p.kind, lane: p.lane ?? 0, d: od, length: p.length ?? 0.6,
-        biome: biomeAt(biomes, od), ramp: p.ramp ?? false, phase: p.phase ?? 0,
+        biome: biomeAt(biomes, od), phase: p.phase ?? 0,
         period: p.period ?? 1, speed: p.speed ?? 0, hit: false, cleared: false, triggerT: -1,
       });
     }
@@ -211,6 +213,5 @@ export function buildTrack(seed: number): Track {
   }
 
   obstacles.sort((a, b) => a.d - b.d);
-  const platforms = obstacles.map(platformOf).filter((p): p is Platform => p !== null);
-  return { seed, biomes, obstacles, platforms, rows };
+  return { seed, map, biomes, obstacles, rows };
 }

@@ -1,26 +1,31 @@
-// Ground, roadside scenery, biome gates and the finish line, streamed in
-// 25 m chunks around the player. Each chunk is a single merged mesh.
+// Ground, roadside scenery, zone gates and the finish line, streamed in
+// 25 m chunks around the player (one lit + one glowing mesh per chunk), plus
+// the sky, distant skyline, ambient particles and per-zone lighting "look".
 import * as THREE from 'three';
 import { BIOME_LENGTH, LANE_WIDTH, RACE_LENGTH, VIEW_AHEAD, VIEW_BEHIND } from '../config.ts';
 import { Rng } from '../core/rng.ts';
-import { BIOMES, biomeAt, type BiomeId, type Palette } from '../world/biomes.ts';
+import { BIOMES, biomeAt, type BiomeId, type CountryId, type Palette } from '../world/biomes.ts';
+import type { TrackPath } from '../world/path.ts';
+import type { Track } from '../world/track.ts';
+import { Atmosphere } from './atmosphere.ts';
+import { finishArea, startArea, zoneGate } from './landmarks.ts';
 import { DecorInstancer, decorList, type Placement, type Template } from './props.ts';
-import { Shapes } from './shapes.ts';
+import { CHUNK, TRACK_HALF, buildCountryChunk, countryLandmarks } from './scenery.ts';
+import { Shapes, glowMaterial } from './shapes.ts';
+import { Sky, blendLook, cloneLook, lookOf, type Look } from './sky.ts';
 
-const CHUNK = 25;
 const SMALL_DECOR_RANGE = 90;
-const TRACK_HALF = LANE_WIDTH * 1.5 + 0.3;
 
 function ground(s: Shapes, p: Palette, b: BiomeId, z0: number) {
   const zc = z0 - CHUNK / 2;
-  s.box(p.ground, 0, -0.1, zc, TRACK_HALF * 2, 0.2, CHUNK);
-  for (const lx of [-LANE_WIDTH / 2, LANE_WIDTH / 2]) s.box(p.groundAlt, lx, 0.005, zc, 0.12, 0.02, CHUNK);
+  s.long(p.ground, 0, -0.1, zc, TRACK_HALF * 2, 0.2, CHUNK);
+  for (const lx of [-LANE_WIDTH / 2, LANE_WIDTH / 2]) s.long(p.groundAlt, lx, 0.005, zc, 0.12, 0.02, CHUNK);
   // Paving stripes give a sense of speed.
   for (let i = 0; i < CHUNK; i += 5) s.box(p.groundAlt, 0, 0.004, z0 - i - 1.25, TRACK_HALF * 2 - 0.4, 0.01, 0.35);
   const curb = b === 'harbor' ? p.a : b === 'candy' ? 0xffffff : p.d;
-  s.box(curb, -TRACK_HALF - 0.2, 0.1, zc, 0.4, 0.4, CHUNK).box(curb, TRACK_HALF + 0.2, 0.1, zc, 0.4, 0.4, CHUNK);
+  s.long(curb, -TRACK_HALF - 0.2, 0.1, zc, 0.4, 0.4, CHUNK).long(curb, TRACK_HALF + 0.2, 0.1, zc, 0.4, 0.4, CHUNK);
   const sideY = b === 'harbor' ? -0.6 : -0.12;
-  s.box(p.side, -TRACK_HALF - 30.4, sideY, zc, 60, 0.2, CHUNK).box(p.side, TRACK_HALF + 30.4, sideY, zc, 60, 0.2, CHUNK);
+  s.long(p.side, -TRACK_HALF - 30.4, sideY, zc, 60, 0.2, CHUNK).long(p.side, TRACK_HALF + 30.4, sideY, zc, 60, 0.2, CHUNK);
   if (b === 'harbor') {
     // Track is a pier: posts under it, water around.
     for (const x of [-TRACK_HALF, TRACK_HALF]) for (let i = 2; i < CHUNK; i += 6) s.cyl(p.a, x, -1.2, z0 - i, 0.22, 1.3, 6);
@@ -106,53 +111,41 @@ function far(s: Shapes, p: Palette, b: BiomeId, z: number, rng: Rng) {
   }
 }
 
-function arch(s: Shapes, color: number, accent: number, z: number) {
-  const x = TRACK_HALF + 0.6;
-  s.box(color, -x, 3, z, 0.6, 6, 0.6).box(color, x, 3, z, 0.6, 6, 0.6);
-  s.box(color, 0, 6.2, z, 2 * x + 1, 0.8, 0.7);
-  s.sphere(accent, -x, 6.5, z, 0.5).sphere(accent, x, 6.5, z, 0.5);
-}
+interface Chunk { meshes: THREE.Mesh[]; placements: Placement[]; small: Placement[] }
 
-function bannerTexture(text: string, bg: string, fg: string) {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 96;
-  const g = c.getContext('2d')!;
-  g.fillStyle = bg;
-  g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = fg;
-  g.font = 'bold 56px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText(text, c.width / 2, c.height / 2 + 2);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-function banner(text: string, z: number, bg = '#222', fg = '#fff') {
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(TRACK_HALF * 2 + 1, 0.75),
-    new THREE.MeshBasicMaterial({ map: bannerTexture(text, bg, fg) }),
-  );
-  m.position.set(0, 6.2, z + 0.36);
-  return m;
-}
+/** Kinds that rise into the air or need headroom: overhead scenery keeps clear of them. */
+const TALL = new Set(['pendulum', 'drop', 'bounce']);
 
 export class Environment {
   readonly root = new THREE.Group();
-  private chunks = new Map<number, { mesh: THREE.Mesh; placements: Placement[]; small: Placement[] }>();
+  readonly sky: Sky;
+  readonly atmosphere = new Atmosphere();
+  readonly look: Look;
+  readonly country: CountryId | null;
+  private chunks = new Map<number, Chunk>();
   private instancer = new DecorInstancer();
   private landmarks: THREE.Mesh[] = [];
   private seed: number;
   private biomes: BiomeId[];
+  private path: TrackPath;
+  private busy: [number, number][];
+  private zone: BiomeId;
 
-  constructor(seed: number, biomes: BiomeId[]) {
+  constructor(seed: number, biomes: BiomeId[], track: Track, path: TrackPath) {
     this.seed = seed;
     this.biomes = biomes;
-    this.root.add(this.instancer.root);
+    this.path = path;
+    this.country = BIOMES[biomes[0]].country ?? null;
+    this.busy = track.obstacles.filter((o) => TALL.has(o.kind)).map((o) => [o.d - 2, o.d + o.length + 2]);
+    this.zone = biomes[0];
+    this.look = lookOf(BIOMES[biomes[0]]);
+    this.sky = new Sky(this.country, seed);
+    this.root.add(this.instancer.root, this.sky.root, this.atmosphere.mesh);
+    this.atmosphere.set(BIOMES[biomes[0]].particles, 0);
     this.addLandmarks();
   }
+
+  private clear = (d0: number, d1: number) => !this.busy.some(([a, b]) => b > d0 && a < d1);
 
   /** Place a Sketchfab decor model `height` tall, turned to face the track. */
   private place(out: Placement[], t: Template, x: number, z: number, height: number, rng: Rng) {
@@ -169,34 +162,40 @@ export class Environment {
     this.root.add(...meshes);
   }
 
-  private addLandmarks() {
-    const start = new Shapes();
-    arch(start, 0x264653, 0xe9c46a, 2);
-    this.add(start.mesh(), banner('START', 2, '#264653'));
-
-    for (let d = BIOME_LENGTH; d < RACE_LENGTH; d += BIOME_LENGTH) {
-      const next = BIOMES[biomeAt(this.biomes, d + 1)];
-      const s = new Shapes();
-      arch(s, next.a, next.c, -d);
-      this.add(s.mesh(), banner(next.name, -d, '#' + next.d.toString(16).padStart(6, '0')));
+  private batchMeshes(lit: Shapes, glow: Shapes, castShadow = true): THREE.Mesh[] {
+    const out: THREE.Mesh[] = [];
+    if (!lit.empty) {
+      const m = lit.mesh();
+      m.castShadow = castShadow;
+      out.push(m);
     }
-
-    const fin = new Shapes();
-    arch(fin, 0xffffff, 0xe63946, -RACE_LENGTH);
-    for (let i = 0; i < 8; i++) for (let j = 0; j < 2; j++) {
-      fin.box((i + j) % 2 ? 0x111111 : 0xffffff, -TRACK_HALF + (i + 0.5) * (TRACK_HALF * 2) / 8, 0.012, -RACE_LENGTH - 0.4 + j * 0.8, (TRACK_HALF * 2) / 8, 0.02, 0.8);
-    }
-    this.add(fin.mesh(), banner('FINISH', -RACE_LENGTH, '#e63946'));
+    if (!glow.empty) out.push(new THREE.Mesh(glow.build(), glowMaterial));
+    return out;
   }
 
-  private build(i: number) {
+  private addLandmarks() {
+    const country = this.country;
+    const lit = new Shapes(), glow = new Shapes();
+    const b = { lit, glow };
+    const extras = startArea(b, country, this.seed);
+    for (let d = BIOME_LENGTH; d < RACE_LENGTH; d += BIOME_LENGTH) extras.push(...zoneGate(b, country, BIOMES[biomeAt(this.biomes, d + 1)], d));
+    extras.push(...finishArea(b, country, RACE_LENGTH, this.seed));
+    if (country) countryLandmarks(b, this.biomes, (i) => i * BIOME_LENGTH);
+    this.add(...this.batchMeshes(lit, glow), ...extras);
+  }
+
+  private build(i: number): Chunk {
     const d0 = i * CHUNK;
     const b = biomeAt(this.biomes, d0 + 1);
     const p = BIOMES[b];
     const rng = new Rng(this.seed * 7919 + i);
     const s = new Shapes();
+    const glow = new Shapes();
     const placements: Placement[] = [];
     const smallPlacements: Placement[] = [];
+    if (buildCountryChunk({ lit: s, glow, rng, biome: b, p, d0, clear: this.clear })) {
+      return { meshes: this.batchMeshes(s, glow, false), placements, small: smallPlacements };
+    }
     const large = decorList('large', b);
     const small = decorList('small', b);
     ground(s, p, b, -d0);
@@ -216,19 +215,20 @@ export class Environment {
       }
     }
     far(s, p, b, -d0 - CHUNK / 2, rng);
-    const mesh = s.mesh();
-    mesh.castShadow = false;
-    return { mesh, placements, small: smallPlacements };
+    return { meshes: this.batchMeshes(s, glow, false), placements, small: smallPlacements };
   }
 
-  update(playerD: number) {
+  /** Stream chunks, blend the zone look, move sky and particles. */
+  update(playerD: number, dt: number, cam: THREE.Vector3) {
     const first = Math.max(-2, Math.floor((playerD - VIEW_BEHIND) / CHUNK));
     const last = Math.floor((playerD + VIEW_AHEAD) / CHUNK);
     let changed = false;
     for (const [i, c] of this.chunks) {
       if (i < first || i > last) {
-        this.root.remove(c.mesh);
-        c.mesh.geometry.dispose();
+        for (const m of c.meshes) {
+          this.root.remove(m);
+          m.geometry.dispose();
+        }
         this.chunks.delete(i);
         changed = true;
       }
@@ -237,7 +237,7 @@ export class Environment {
       if (!this.chunks.has(i)) {
         const c = this.build(i);
         this.chunks.set(i, c);
-        this.root.add(c.mesh);
+        this.root.add(...c.meshes);
         changed = true;
       }
     }
@@ -246,13 +246,41 @@ export class Environment {
       this.instancer.rebuild([...this.chunks].flatMap(([i, c]) =>
         i * CHUNK < playerD + SMALL_DECOR_RANGE ? [...c.placements, ...c.small] : c.placements));
     }
+
+    // The look changes a little before each gate so you run into the new mood.
+    const zone = biomeAt(this.biomes, playerD + 25);
+    if (zone !== this.zone) {
+      this.zone = zone;
+      this.atmosphere.set(BIOMES[zone].particles, playerD);
+    }
+    blendLook(this.look, lookOf(BIOMES[zone]), dt > 0 ? 1 - Math.exp(-dt * 0.9) : 1);
+    this.atmosphere.update(dt, playerD);
+    const f = this.path.frame(playerD);
+    this.sky.update(cam, this.look, f.y + this.groundBelow(playerD));
+  }
+
+  /** Far ground height: below every bit of track in view. */
+  private groundBelow(playerD: number) {
+    let min = Infinity;
+    const base = this.path.frame(playerD).y;
+    for (let d = playerD - 20; d < playerD + VIEW_AHEAD; d += 20) min = Math.min(min, this.path.frame(d).y);
+    const side = Math.min(0, BIOMES[this.zone].sideY ?? 0);
+    return min - base + side - 0.6;
+  }
+
+  snapLook(playerD: number) {
+    this.zone = biomeAt(this.biomes, playerD + 25);
+    Object.assign(this.look, cloneLook(lookOf(BIOMES[this.zone])));
+    this.atmosphere.set(BIOMES[this.zone].particles, playerD);
   }
 
   dispose() {
-    for (const c of this.chunks.values()) c.mesh.geometry.dispose();
+    for (const c of this.chunks.values()) for (const m of c.meshes) m.geometry.dispose();
     this.chunks.clear();
     this.instancer.dispose();
-    // Arches share flatMaterial; banners own their material and canvas texture.
+    this.sky.dispose();
+    this.atmosphere.dispose();
+    // Landmark batches share materials; banners own their material and canvas texture.
     for (const m of this.landmarks) {
       m.geometry.dispose();
       const mat = m.material as THREE.MeshBasicMaterial;

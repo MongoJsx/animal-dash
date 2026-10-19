@@ -8,7 +8,7 @@ import type { BiomeId } from './biomes.ts';
 import type { Kind, Obstacle } from './obstacles.ts';
 
 export type PropSlot =
-  | 'lowbar' | 'highbar' | 'wall' | 'hay' | 'trainCar' | 'oncoming' | 'rolling' | 'shifter'
+  | 'lowbar' | 'highbar' | 'wall' | 'hay' | 'oncoming' | 'rolling' | 'shifter'
   | 'pendulumHead' | 'spikes' | 'drop' | 'sweeper' | 'bounce';
 
 export interface PropEntry {
@@ -31,7 +31,7 @@ export function setPropManifest(m: Partial<PropManifest> | null | undefined) {
 export const propManifest = () => manifest;
 
 export const KIND_SLOT: Partial<Record<Kind, PropSlot>> = {
-  lowbar: 'lowbar', wall: 'wall', hay: 'hay', train: 'trainCar', oncoming: 'oncoming',
+  lowbar: 'lowbar', wall: 'wall', hay: 'hay', oncoming: 'oncoming',
   rolling: 'rolling', shifter: 'shifter', pendulum: 'pendulumHead', spikes: 'spikes', drop: 'drop',
   sweeper: 'sweeper', bounce: 'bounce',
 };
@@ -83,7 +83,7 @@ export function fitTarget(o: Obstacle): { w: number; h: number; d: number; opts:
     case 'drop': return { w: 1.2, h: 1.15, d: 1.2, opts: { centered: true } };
     case 'sweeper': return { w: 7.4, h: 0.45, d: 0.45, opts: { centered: true, stretchX: true } };
     case 'bounce': return { w: 1.6, h: 0.7, d: 1.6, opts: { centered: true } };
-    default: return null; // train cars are fitted per car by the renderer
+    default: return null;
   }
 }
 

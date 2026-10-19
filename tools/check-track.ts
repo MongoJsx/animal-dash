@@ -19,9 +19,11 @@ const STANCES = [
   { y0: 0, y1: 0.75 }, // slide
 ];
 
+const MAPS = ['thai', 'china', 'japan', 'fable'] as const;
 for (let seed = 1; seed <= SEEDS; seed++) {
-  const track = buildTrack(seed);
-  const again = buildTrack(seed);
+  const map = MAPS[seed % MAPS.length];
+  const track = buildTrack(seed, map);
+  const again = buildTrack(seed, map);
   if (JSON.stringify(track.obstacles) !== JSON.stringify(again.obstacles)) {
     console.log(`seed ${seed}: not deterministic`);
     failures++;
@@ -40,8 +42,7 @@ for (let seed = 1; seed <= SEEDS; seed++) {
         const x = lane * LANE_WIDTH;
         return STANCES.some((s) => !at.some((b) => x + 0.35 > b.x0 && x - 0.35 < b.x1 && s.y1 > b.y0 && s.y0 < b.y1));
       });
-      // Trains can be climbed; ignore rows where every lane is a train body.
-      if (!open && !near.some((o) => o.kind === 'train')) {
+      if (!open) {
         console.log(`seed ${seed}: blocked at d=${d.toFixed(1)} t=${t} kinds=${near.map((o) => o.kind).join(',')}`);
         failures++;
         break;

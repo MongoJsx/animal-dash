@@ -10,10 +10,14 @@ import { loadProps } from '../render/props.ts';
 import type { BiomeId } from '../world/biomes.ts';
 import { hitBoxes, type Box, type Kind, type Obstacle } from '../world/obstacles.ts';
 
-const BIOMES: BiomeId[] = ['village', 'forest', 'candy', 'harbor', 'snow'];
-const KINDS: { kind: Kind; length: number; ramp?: boolean }[] = [
+const SETS: Record<string, BiomeId[]> = {
+  classic: ['village', 'forest', 'candy', 'harbor', 'snow'],
+  asia: ['th_city', 'cn_town', 'jp_sakura', 'jp_snow'],
+};
+const BIOMES: BiomeId[] = SETS[new URLSearchParams(location.search).get('set') ?? 'classic'] ?? SETS.classic;
+const KINDS: { kind: Kind; length: number }[] = [
   { kind: 'lowbar', length: 0.6 }, { kind: 'highbar', length: 0.6 }, { kind: 'wall', length: 1.6 },
-  { kind: 'hay', length: 1.4 }, { kind: 'train', length: 16, ramp: true }, { kind: 'oncoming', length: 3.2 },
+  { kind: 'hay', length: 1.4 }, { kind: 'oncoming', length: 3.2 },
   { kind: 'rolling', length: 1.2 }, { kind: 'shifter', length: 1.4 }, { kind: 'pendulum', length: 1.4 },
   { kind: 'spikes', length: 2.4 }, { kind: 'drop', length: 1.6 }, { kind: 'sweeper', length: 7.4 }, { kind: 'bounce', length: 1.5 },
 ];
@@ -41,10 +45,10 @@ const ROW = 20;
 const wire = new THREE.LineBasicMaterial({ color: 0xe63946 });
 const boxes: Box[] = [];
 let id = variant;
-kinds.forEach(({ kind, length, ramp }, r) => {
+kinds.forEach(({ kind, length }, r) => {
   BIOMES.forEach((biome, c) => {
     const o: Obstacle = {
-      id: id++, row: 0, kind, lane: 0, d: 0, length, biome, ramp: ramp ?? false, phase: 0.1,
+      id: id++, row: 0, kind, lane: 0, d: 0, length, biome, phase: 0.1,
       period: 2.4, speed: 0, hit: false, cleared: false, triggerT: kind === 'drop' ? T - 1.9 : -1,
     };
     const g = new THREE.Group();

@@ -201,7 +201,9 @@ export class ProcRig {
     // Freeze the pose we are leaving and blend out of it.
     for (let i = 0; i < NAMES.length; i++) this.from.q[i].copy(this.out.q[i]);
     this.from.hips.copy(this.out.hips);
-    this.fade = state === 'jump' ? 0.08 : state === 'run' && prev === 'jump' ? 0.06 : state === 'slide' ? 0.1 : 0.18;
+    this.fade = state === 'jump' ? 0.08 : state === 'run' && prev === 'jump' ? 0.06 : state === 'slide' ? 0.1
+      : state === 'marks' ? 0.7 : state === 'set' ? 0.45 : state === 'burst' ? 0.07 : state === 'run' && prev === 'burst' ? 0.35 : 0.18;
+    if (state === 'burst') this.phase = 0.62; // first stride: rear leg drives through
     this.fadeT = this.posed ? 0 : this.fade;
     if (state === 'run' && prev === 'jump') {
       this.land = 1;
@@ -222,7 +224,10 @@ export class ProcRig {
 
     // Cadence rises a little with speed; stride length does the rest.
     const cadence = THREE.MathUtils.clamp(1.25 + this.speedS * 0.035, 1.2, 2.1);
-    if (this.state !== 'idle' && this.state !== 'victory' && this.state !== 'defeat') this.phase = wrap(this.phase + dt * cadence * (this.state === 'stumble' ? 1.3 : 1));
+    const still = this.state === 'idle' || this.state === 'victory' || this.state === 'defeat' || this.state === 'marks' || this.state === 'set';
+    // Drive phase: quick, punchy steps while the speed is still low.
+    const drive = this.state === 'burst' ? 1.25 : 1;
+    if (!still) this.phase = wrap(this.phase + dt * Math.max(cadence, this.state === 'burst' ? 1.9 : 0) * drive * (this.state === 'stumble' ? 1.3 : 1));
 
     this.pose(this.target);
     this.fadeT += dt;
@@ -403,6 +408,72 @@ export class ProcRig {
       case 'strafe_right':
         runPose();
         break;
+
+      case 'burst': {
+        // Drive phase out of the blocks: body low and leaning hard, big
+        // piston arms, rising toward upright over the first strides.
+        runPose(1.15);
+        const e = 1 - smooth(k);
+        sp += 34 * e * DEG;
+        hp -= 26 * e * DEG;
+        hipsPos.y -= 0.12 * L * e;
+        hipsPos.addScaledVector(this.F, 0.1 * L * e);
+        hipsQ.premultiply(this.rot(28 * e * DEG, 0, 0, _q));
+        for (let i = 0; i < 2; i++) {
+          armP[i].swing = armP[i].swing * (1 + 0.5 * e) + 10 * e * DEG;
+          armP[i].elbow = mix(armP[i].elbow, 95 * DEG, e * 0.6);
+        }
+        break;
+      }
+
+      case 'marks': {
+        // "On your marks": rear knee down, front foot on the block,
+        // straight arms with fingers on the line, eyes down.
+        const br = Math.sin(t * 2.4 + this.seed) * 0.5 + 0.5;
+        hipsPos.y = this.hipsH * 0.5 + br * 0.006 * L;
+        hipsPos.addScaledVector(this.F, -0.02 * L);
+        this.rot(38 * DEG, 0, 0, hipsQ);
+        ankles[0] = this.ground(this.legs[0], 0.22, 0.03, 1, ankles[0]);
+        ankles[1] = this.ground(this.legs[1], -0.4, 0.08, 1, ankles[1]);
+        fp[0] = 20 * DEG;
+        fp[1] = 55 * DEG;
+        toes[1] = -35 * DEG;
+        kneeOut = 0.05;
+        sp = 36 * DEG;
+        hp = -10 * DEG;
+        stab = 0.15;
+        for (let i = 0; i < 2; i++) {
+          armP[i].swing = (78 + br) * DEG;
+          armP[i].spread = 10 * DEG;
+          armP[i].elbow = 4 * DEG;
+          armP[i].cu = 4 * DEG;
+        }
+        break;
+      }
+
+      case 'set': {
+        // "Set": hips rise above the shoulders, weight forward over the hands.
+        const quiver = Math.sin(t * 17 + this.seed) * 0.003 * L;
+        hipsPos.y = this.hipsH * 0.8 + quiver;
+        hipsPos.addScaledVector(this.F, 0.07 * L);
+        this.rot(58 * DEG, 0, 0, hipsQ);
+        ankles[0] = this.ground(this.legs[0], 0.22, 0.03, 1, ankles[0]);
+        ankles[1] = this.ground(this.legs[1], -0.4, 0.1, 1, ankles[1]);
+        fp[0] = 28 * DEG;
+        fp[1] = 50 * DEG;
+        toes[1] = -40 * DEG;
+        kneeOut = 0.05;
+        sp = 26 * DEG;
+        hp = -14 * DEG;
+        stab = 0.1;
+        for (let i = 0; i < 2; i++) {
+          armP[i].swing = 86 * DEG;
+          armP[i].spread = 10 * DEG;
+          armP[i].elbow = 2 * DEG;
+          armP[i].cu = 6 * DEG;
+        }
+        break;
+      }
 
       case 'jump': {
         // Takeoff → tuck → reach for the ground.

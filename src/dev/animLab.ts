@@ -14,9 +14,9 @@ const params = new URLSearchParams(location.search);
 const capture = params.has('capture');
 if (capture) document.body.classList.add('capture');
 
-const STATES: AnimState[] = ['idle', 'run', 'jump', 'slide', 'stumble', 'fall', 'victory', 'defeat'];
+const STATES: AnimState[] = ['idle', 'run', 'jump', 'slide', 'stumble', 'fall', 'victory', 'defeat', 'marks', 'set', 'burst'];
 const airTime = (v: number) => (2 * v) / PLAYER.gravity;
-const DURATION: Partial<Record<AnimState, number>> = { jump: airTime(PLAYER.jumpVelocity), slide: PLAYER.slideTime, stumble: 0.9, fall: 0.8 };
+const DURATION: Partial<Record<AnimState, number>> = { jump: airTime(PLAYER.jumpVelocity), slide: PLAYER.slideTime, stumble: 0.9, fall: 0.8, burst: 1.25 };
 const SPACING = 1.7;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: capture });

@@ -1,9 +1,9 @@
 // Player simulation: auto-run, lane changes, jump/slide, collisions that cost
 // speed instead of lives, and the Focus streak. Pure logic, no rendering.
-import { FOCUS, PENALTY, PLAYER, baseSpeed, laneX } from '../config.ts';
+import { BODY, DASH, FOCUS, PENALTY, PLAYER, START_BOOST, baseSpeed, laneX, runOut } from '../config.ts';
 import type { Action } from '../core/input.ts';
 import {
-  TRAIN_TOP, hitBoxes, isHazard, onFloor, platformHeight, trigger, type Box, type Obstacle,
+  hitBoxes, isHazard, onFloor, trigger, type Box, type Obstacle,
 } from '../world/obstacles.ts';
 import type { Track } from '../world/track.ts';
 
@@ -17,6 +17,13 @@ export type PlayerEvent =
   | { type: 'sidehit' }
   | { type: 'fall' }
   | { type: 'focus'; level: number }
+  | { type: 'bump'; side: boolean }
+  | { type: 'smash'; obstacle: Obstacle } // destroyed by a hit or a dash
+  | { type: 'dash' }
+  | { type: 'dashReady' }
+  | { type: 'stunned' }
+  | { type: 'shoved' } // barged into the next lane
+  | { type: 'barged' } // barged someone else aside
   | { type: 'finish' };
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -30,6 +37,17 @@ export class Player {
   lane = 0;
   private laneFrom = 0;
   private laneT = 1;
+  private laneTime: number = PLAYER.laneChangeTime;
+  /** False until everyone leaves the blocks together. */
+  launched = false;
+  private boost = 0; // extra speed out of the blocks, decays
+  private bumpT = 0;
+  /** Dash meter 0..DASH.full, and time left in a dash. */
+  dash = 0;
+  dashT = 0;
+  private stunT = 0;
+  /** Sideways jolt from a shoulder bump, for the view (−1/1, 0 = none). */
+  jolt = 0;
   laneVelocity = 0;
   grounded = true;
   slideT = 0;
@@ -52,7 +70,44 @@ export class Player {
   }
 
   get stunned() {
-    return this.fallT > 0;
+    return this.fallT > 0 || this.stunT > 0;
+  }
+
+  get dashing() {
+    return this.dashT > 0;
+  }
+
+  get dashReady() {
+    return this.dash >= DASH.full && !this.dashing && this.launched && !this.finished;
+  }
+
+  private addDash(v: number) {
+    if (this.dashing || this.finished) return;
+    const was = this.dash >= DASH.full;
+    this.dash = Math.min(DASH.full, this.dash + v);
+    if (!was && this.dash >= DASH.full) this.emit({ type: 'dashReady' });
+  }
+
+  /** Rammed by a dashing runner: stopped dead for a moment and knocked aside. */
+  stun(time: number, push: number) {
+    if (this.dashing || this.finished) return;
+    this.stunT = Math.max(this.stunT, time);
+    this.speedMul = 0.45;
+    this.recoverRate = 0.55 / 0.7;
+    this.shove(push);
+    this.emit({ type: 'stunned' });
+  }
+
+  /** Pushed sideways by `push` metres right now, settling into the nearest lane that way. */
+  private shove(push: number) {
+    if (!push) return;
+    this.x += push;
+    this.jolt = Math.sign(push);
+    this.laneFrom = this.currentLaneFloat();
+    const lane = Math.max(-1, Math.min(1, push > 0 ? Math.ceil(this.laneFrom - 0.25) : Math.floor(this.laneFrom + 0.25)));
+    this.lane = lane;
+    this.laneT = 0;
+    this.laneTime = 0.25;
   }
 
   get height() {
@@ -67,10 +122,93 @@ export class Player {
     return (2 * v) / PLAYER.gravity;
   }
 
-  /** Place on a lane before the start (online races start side by side). */
-  startLane(lane: number) {
-    this.lane = this.laneFrom = lane;
-    this.x = laneX(lane);
+  /** Crouch in a starting box at x; after the gun, merge into `lane`. */
+  startSlot(x: number, lane: number) {
+    this.x = x;
+    this.laneFrom = x / laneX(1);
+    this.lane = lane;
+    this.laneT = 1;
+    this.launched = false;
+  }
+
+  /** Out of the blocks: accelerate hard. Everyone gets the same start. */
+  launch() {
+    if (this.launched) return;
+    this.launched = true;
+    this.speedMul = 0;
+    this.recoverRate = 1 / 0.55;
+    this.boost = START_BOOST;
+    this.laneFrom = this.currentLaneFloat();
+    this.laneT = 0;
+    this.laneTime = 0.5;
+  }
+
+  /** Ran into the back of another runner: held behind them. */
+  blockBehind(leaderD: number, leaderSpeed: number) {
+    // Two dashers: no slowdown, but still no overlapping.
+    if (this.dashing) { this.d = Math.min(this.d, leaderD - BODY.depth); return; }
+    const first = this.bumpT <= 0;
+    // A first contact knocks you back a touch; after that you just tuck in behind.
+    this.d = Math.min(this.d, leaderD - BODY.depth - (first ? 0.15 : 0));
+    if (this.speed > leaderSpeed) {
+      this.speedMul = Math.min(this.speedMul, Math.max(0.55, (leaderSpeed / Math.max(1, this.speed)) * this.speedMul * (first ? 0.85 : 1)));
+      this.recoverRate = 0.6;
+    }
+    if (first) {
+      this.addDash(DASH.perBump);
+      this.emit({ type: 'bump', side: false });
+    }
+    this.bumpT = 1.0;
+  }
+
+  /** Barged one lane over by a runner cutting across. */
+  shoved(dir: -1 | 1, push: number) {
+    if (this.dashing || this.finished) return;
+    this.x += push;
+    this.jolt = dir;
+    this.laneFrom = this.currentLaneFloat();
+    this.lane = Math.max(-1, Math.min(1, Math.round(this.laneFrom - push / laneX(1)) + dir));
+    this.laneT = 0;
+    this.laneTime = 0.3;
+    this.speedMul = Math.min(this.speedMul, 0.9);
+    this.recoverRate = 0.5;
+    if (this.bumpT <= 0) this.emit({ type: 'shoved' });
+    this.bumpT = 0.6;
+  }
+
+  /** Barged someone aside: a little shoulder, a little meter. */
+  barged() {
+    if (this.bumpT <= 0) {
+      this.addDash(DASH.perBump);
+      this.emit({ type: 'barged' });
+    }
+    this.bumpT = 0.6;
+  }
+
+  /** Shouldered someone while changing lanes: bounce back. */
+  sideBump(push = 0) {
+    this.x += push;
+    this.jolt = Math.sign(push);
+    if (this.laneT >= 1) {
+      this.laneFrom = this.currentLaneFloat();
+      return;
+    }
+    const back = Math.round(this.laneFrom);
+    this.laneFrom = this.currentLaneFloat();
+    this.lane = back;
+    this.laneT = 0;
+    this.laneTime = PLAYER.laneChangeTime;
+    this.speedMul = Math.min(this.speedMul, 0.92);
+    this.recoverRate = 0.4;
+    if (this.bumpT <= 0) {
+      this.addDash(DASH.perBump);
+      this.emit({ type: 'bump', side: true });
+    }
+    this.bumpT = 0.6;
+  }
+
+  get changingLane() {
+    return this.laneT < 1;
   }
 
   private changeLane(dir: -1 | 1) {
@@ -79,6 +217,7 @@ export class Player {
     this.laneFrom = this.currentLaneFloat();
     this.lane = target;
     this.laneT = 0;
+    this.laneTime = PLAYER.laneChangeTime;
     this.emit({ type: 'lane', dir });
   }
 
@@ -93,24 +232,30 @@ export class Player {
     this.emit({ type, airTime: this.airTime(v) });
   }
 
-  /** Floor height under (x, d): platforms or the ground. */
-  private floorAt(track: Track, x: number, d: number) {
-    let h = 0;
-    for (const p of track.platforms) {
-      if (p.d0 > d + 1 || p.d1 < d - 1) continue;
-      h = Math.max(h, platformHeight(p, x, d));
-    }
-    return h;
-  }
-
   step(dt: number, t: number, actions: Action[], track: Track) {
+    if (!this.launched) {
+      this.speed = 0;
+      this.laneVelocity = 0;
+      return;
+    }
     for (const a of actions) this.buffer.push({ a, t });
     this.invulnT = Math.max(0, this.invulnT - dt);
     this.fallT = Math.max(0, this.fallT - dt);
+    this.stunT = Math.max(0, this.stunT - dt);
+    this.bumpT = Math.max(0, this.bumpT - dt);
+    this.boost = Math.max(0, this.boost - dt * 0.2);
+    if (this.dashT > 0) {
+      this.dashT = Math.max(0, this.dashT - dt);
+      if (this.dashT === 0) this.invulnT = Math.max(this.invulnT, 0.3);
+    }
 
     // ── Input (buffered so early swipes still count) ──────────────────
     this.buffer = this.buffer.filter(({ a, t: at }) => {
       if (t - at > PLAYER.inputBuffer) return false;
+      if (a === 'dash') {
+        if (this.dashReady) this.startDash();
+        return false;
+      }
       if (this.stunned || this.finished) return true;
       switch (a) {
         case 'left': this.changeLane(-1); return false;
@@ -132,7 +277,7 @@ export class Player {
 
     // ── Lateral ───────────────────────────────────────────────────────
     const prevX = this.x;
-    this.laneT = Math.min(1, this.laneT + dt / PLAYER.laneChangeTime);
+    this.laneT = Math.min(1, this.laneT + dt / this.laneTime);
     this.x = laneX(this.laneFrom + (this.lane - this.laneFrom) * smooth(this.laneT));
     this.laneVelocity = (this.x - prevX) / dt;
 
@@ -147,20 +292,18 @@ export class Player {
     }
     const focusMul = 1 + this.focus * FOCUS.bonusPerLevel;
     this.speed = this.finished
-      ? Math.max(0, this.speed - 14 * dt)
-      : baseSpeed(this.d) * focusMul * this.speedMul * floorMul;
+      ? runOut(this.speed, dt)
+      : this.stunT > 0 ? 0
+      : this.dashing ? baseSpeed(this.d) * focusMul * DASH.mul
+      : baseSpeed(this.d) * focusMul * this.speedMul * floorMul * (1 + this.boost);
+    const before = this.d;
     this.d += this.speed * dt;
+    if (!this.dashing && !this.finished) this.addDash((this.d - before) * DASH.perMeter);
 
     // ── Vertical ──────────────────────────────────────────────────────
-    let floor = this.floorAt(track, this.x, this.d);
-    // A roof well above our feet is a wall to collide with, not a floor.
-    if (floor - this.y > PLAYER.stepUp) floor = 0;
+    const floor = 0;
     this.vy -= PLAYER.gravity * dt;
     this.y += this.vy * dt;
-    if (this.grounded && floor < this.y - 0.05) {
-      this.grounded = false; // ran off a roof
-      this.vy = Math.min(this.vy, 0);
-    }
     if (this.y <= floor) {
       const wasAir = !this.grounded;
       this.y = floor;
@@ -181,6 +324,17 @@ export class Player {
     for (const o of near) {
       trigger(o, t, this.d, this.speed);
       if (o.hit || this.finished) continue;
+      if (this.dashing) {
+        // Nothing stops a dash: plough through and leave nothing standing.
+        if (o.kind === 'gap' || o.kind === 'slow' || o.kind === 'bounce') continue;
+        boxes.length = 0;
+        hitBoxes(o, t, boxes);
+        if (boxes.some((b) => this.overlaps(b, this.x))) {
+          o.hit = true;
+          this.emit({ type: 'smash', obstacle: o });
+        }
+        continue;
+      }
       if (this.grounded && this.y < 0.05) {
         if (o.kind === 'bounce' && onFloor(o, this.x, this.d)) this.jump(PLAYER.bounceVelocity, 'bounce');
         if (o.kind === 'gap' && onFloor(o, this.x, this.d)) this.fall(o);
@@ -191,8 +345,8 @@ export class Player {
       for (const b of boxes) {
         if (!this.overlaps(b, this.x)) continue;
         // Moving sideways into something we would have missed = side hit.
-        if (this.laneT < 1 && !this.overlaps(b, laneX(this.laneFrom))) this.sideHit();
-        else this.stumble(o, track, t);
+        if (this.laneT < 1 && !this.overlaps(b, laneX(this.laneFrom))) this.sideHit(o);
+        else this.stumble(o);
         break;
       }
     }
@@ -216,12 +370,32 @@ export class Player {
       this.d + hd > b.d0 && this.d - hd < b.d1;
   }
 
-  private sideHit() {
+  private startDash() {
+    this.dash = 0;
+    this.dashT = DASH.time;
+    this.speedMul = 1;
+    this.boost = 0;
+    this.stunT = 0;
+    this.slideT = 0;
+    this.setFocus(FOCUS.max);
+    this.emit({ type: 'dash' });
+  }
+
+  /** Whatever you run into is smashed out of the way (and fills the dash meter). */
+  private smash(o: Obstacle) {
+    o.hit = true;
+    this.addDash(DASH.perHit);
+    this.emit({ type: 'smash', obstacle: o });
+  }
+
+  private sideHit(o: Obstacle) {
+    this.smash(o);
     // Bounce back to where we came from.
     const back = Math.round(this.laneFrom);
     this.laneFrom = this.currentLaneFloat();
     this.lane = back;
     this.laneT = 0;
+    this.laneTime = PLAYER.laneChangeTime;
     this.speedMul = Math.min(this.speedMul, PENALTY.sideHit.speed);
     this.recoverRate = (1 - PENALTY.sideHit.speed) / PENALTY.sideHit.recover;
     this.invulnT = 0.25;
@@ -230,47 +404,20 @@ export class Player {
     this.emit({ type: 'sidehit' });
   }
 
-  private stumble(o: Obstacle, track: Track, t: number) {
-    // A train stays solid after a hit (it can't be knocked away like a crate).
-    if (o.kind !== 'train') o.hit = true;
+  private stumble(o: Obstacle) {
+    this.smash(o);
     this.speedMul = PENALTY.stumble.speed;
     this.recoverRate = (1 - PENALTY.stumble.speed) / PENALTY.stumble.recover;
     this.invulnT = PENALTY.stumble.invulnerable;
     this.slideT = 0;
     this.setFocus(0);
     this.markRow(o.row);
-    // Long obstacles (trains) would keep us inside them: move to the nearest
-    // free lane, or onto the roof when every lane is blocked here.
-    if (o.length > 4) {
-      const options = [-1, 0, 1]
-        .filter((l) => l !== this.lane && !this.blocked(track, l, t))
-        .sort((a, b) => Math.abs(a - this.lane) - Math.abs(b - this.lane));
-      if (options.length) {
-        this.laneFrom = this.currentLaneFloat();
-        this.lane = options[0];
-        this.laneT = 0;
-      } else if (o.kind === 'train') {
-        this.y = TRAIN_TOP;
-        this.vy = 0;
-        this.grounded = true;
-      }
-    }
     this.emit({ type: 'stumble', obstacle: o });
-  }
-
-  private blocked(track: Track, lane: number, t: number) {
-    const x = laneX(lane);
-    for (const o of this.nearby(track)) {
-      if (o.d > this.d + 6) break;
-      boxes.length = 0;
-      hitBoxes(o, t, boxes);
-      if (boxes.some((b) => this.overlaps(b, x))) return true;
-    }
-    return false;
   }
 
   private fall(o: Obstacle) {
     o.hit = true;
+    this.addDash(DASH.perHit);
     this.fallT = PENALTY.fall.duration;
     this.speedMul = PENALTY.fall.speed;
     this.recoverRate = (1 - PENALTY.fall.speed) / PENALTY.fall.recover;

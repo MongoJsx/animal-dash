@@ -1,6 +1,7 @@
 // DOM overlay: menu, countdown, race HUD (progress, rank, Focus) and results.
 import { FOCUS, RACE_LENGTH } from '../config.ts';
 import type { CharacterDef } from '../render/character.ts';
+import { MAPS, MAP_IDS, type MapId } from '../world/biomes.ts';
 
 export interface Racer {
   name: string;
@@ -19,11 +20,18 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
   return e;
 };
 
+/** Mouse/trackpad machine: show key names instead of swipes. */
+export const desktop = typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches;
+
 const fmtTime = (t: number) => {
   const m = Math.floor(t / 60);
   const s = t - m * 60;
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 };
+
+/** Finishing order: finishers by time, then everyone else by distance. */
+export const byFinish = (a: Racer, b: Racer) =>
+  a.finished && b.finished ? a.finishTime - b.finishTime : a.finished ? -1 : b.finished ? 1 : b.d - a.d;
 
 export class Hud {
   private root: HTMLElement;
@@ -37,6 +45,14 @@ export class Hud {
   private focusBox: HTMLElement;
   private toast: HTMLElement;
   private big: HTMLElement;
+  private sub: HTMLElement;
+  private zone: HTMLElement;
+  private zoneTimer = 0;
+  private dashBtn: HTMLButtonElement;
+  private dashFill = -1;
+  private dashState = '';
+  /** Set by the game: the dash button was pressed. */
+  onDash: () => void = () => {};
   private menu: HTMLElement;
   private results: HTMLElement;
   private toastTimer = 0;
@@ -57,26 +73,86 @@ export class Hud {
     for (let i = 0; i < FOCUS.max; i++) this.pips.push(el('div', 'pip', pipRow));
     this.toast = el('div', 'toast', this.root);
     this.big = el('div', 'big', this.root);
+    this.sub = el('div', 'big-sub', this.root);
+    this.dashBtn = el('button', 'dash-btn', this.race, `<span class="dash-label">DASH</span><small>${desktop ? 'Shift' : ''}</small>`);
+    for (const ev of ['pointerdown', 'pointerup'] as const) this.dashBtn.addEventListener(ev, (e) => e.stopPropagation());
+    this.dashBtn.addEventListener('pointerdown', () => this.onDash());
+    this.zone = el('div', 'zone-title', this.root);
     this.menu = el('div', 'menu hidden', this.root);
     this.results = el('div', 'results hidden', this.root);
   }
 
-  showMenu(chars: CharacterDef[], selected: string, onPick: (id: string) => void, onStart: () => void, onOnline: () => void) {
+  showMenu(chars: CharacterDef[], selected: string, onPick: (id: string) => void, onStart: () => void, onOnline: () => void,
+    map: MapId, onMap: (m: MapId) => void) {
     this.race.classList.add('hidden');
     this.results.classList.add('hidden');
     this.menu.classList.remove('hidden');
+    this.root.classList.remove('zone', 'dashing');
+    const controls = desktop
+      ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช']]
+      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['ปุ่ม DASH', 'แดช']];
     this.menu.innerHTML = `
-      <div class="title">วิ่งสุดใจ<small>ANIMAL DASH</small></div>
-      <div class="hint">ปัด ← → เปลี่ยนเลน · ↑ กระโดด · ↓ สไลด์<br>ชน = ช้าลง · หลบต่อเนื่อง = FOCUS เร็วขึ้น</div>
-      <div class="chars">${chars.map((c) => `<button class="char ${c.id === selected ? 'on' : ''}" data-id="${c.id}">${c.name}</button>`).join('')}</div>
-      <div class="lobby"></div>
-      <div class="row"><button class="start">เริ่มแข่ง</button><button class="online-btn">🌐 เล่นกับเพื่อน</button></div>`;
-    this.menu.querySelectorAll<HTMLButtonElement>('.char').forEach((b) => {
+      <div class="menu-top">
+        <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">ANIMAL DASH</span></div>
+      </div>
+      <button class="help-btn" aria-label="วิธีเล่น">?</button>
+      <button class="arrow prev" aria-label="ตัวก่อนหน้า"></button>
+      <button class="arrow next" aria-label="ตัวถัดไป"></button>
+      <div class="panel">
+        <div class="who">
+          <span class="who-label">เลือกนักวิ่ง</span>
+          <b class="who-name"></b>
+          <div class="dots">${chars.map((c) => `<button class="char ${c.id === selected ? 'on' : ''}" data-id="${c.id}" aria-label="${c.name}"></button>`).join('')}</div>
+        </div>
+        <div class="maps">${MAP_IDS.map((m) => `<button class="map ${m === map ? 'on' : ''}" data-map="${m}"><span>${MAPS[m].flag}</span>${MAPS[m].name}</button>`).join('')}</div>
+        <div class="lobby hidden"></div>
+        <div class="row"><button class="start"><span class="start-label">เริ่มแข่ง</span></button><button class="online-btn"><span>🌐</span>เล่นกับเพื่อน</button></div>
+        ${desktop ? '<div class="keys"><kbd>Enter</kbd> เริ่มแข่ง · <kbd>←</kbd><kbd>→</kbd> เปลี่ยนตัวละคร</div>' : ''}
+      </div>
+      <div class="help hidden">
+        <div class="help-card">
+          <div class="help-title">วิธีเล่น</div>
+          <div class="help-grid">${controls.map(([k, v]) => `<div class="help-item"><kbd>${k}</kbd><span>${v}</span></div>`).join('')}</div>
+          <ul class="help-tips">
+            <li><b>ออกตัว</b> — ทุกคนออกพร้อมกันหลังเสียง “ปัง!” ไม่ต้องกดอะไร</li>
+            <li><b>ชนของ</b> — ช้าลง แต่เติมเกจแดช</li>
+            <li><b>หลบต่อเนื่อง</b> — สะสม FOCUS วิ่งเร็วขึ้นเรื่อย ๆ</li>
+          </ul>
+          <button class="help-close">เข้าใจแล้ว!</button>
+        </div>
+      </div>`;
+    const dots = [...this.menu.querySelectorAll<HTMLButtonElement>('.char')];
+    const name = this.menu.querySelector<HTMLElement>('.who-name')!;
+    const show = (id: string) => {
+      name.textContent = chars.find((c) => c.id === id)?.name ?? '';
+      name.classList.remove('swap');
+      void name.offsetWidth;
+      name.classList.add('swap');
+    };
+    show(selected);
+    dots.forEach((b) => {
       b.onclick = () => {
-        this.menu.querySelectorAll('.char').forEach((x) => x.classList.toggle('on', x === b));
+        dots.forEach((x) => x.classList.toggle('on', x === b));
+        show(b.dataset.id!);
         onPick(b.dataset.id!);
       };
     });
+    const step = (dir: number) => {
+      const i = dots.findIndex((b) => b.classList.contains('on'));
+      dots[(i + dir + dots.length) % dots.length].click();
+    };
+    this.menu.querySelector<HTMLButtonElement>('.prev')!.onclick = () => step(-1);
+    this.menu.querySelector<HTMLButtonElement>('.next')!.onclick = () => step(1);
+    this.menu.querySelectorAll<HTMLButtonElement>('.map').forEach((b) => {
+      b.onclick = () => {
+        this.menu.querySelectorAll('.map').forEach((x) => x.classList.toggle('on', x === b));
+        onMap(b.dataset.map as MapId);
+      };
+    });
+    const help = this.menu.querySelector<HTMLElement>('.help')!;
+    this.menu.querySelector<HTMLButtonElement>('.help-btn')!.onclick = () => help.classList.remove('hidden');
+    help.onclick = (e) => { if (e.target === help) help.classList.add('hidden'); };
+    this.menu.querySelector<HTMLButtonElement>('.help-close')!.onclick = () => help.classList.add('hidden');
     this.menu.querySelector<HTMLButtonElement>('.start')!.onclick = onStart;
     this.menu.querySelector<HTMLButtonElement>('.online-btn')!.onclick = onOnline;
   }
@@ -89,7 +165,7 @@ export class Hud {
     if (!box || !start || !onlineBtn) return;
     box.classList.toggle('hidden', !lobby);
     onlineBtn.classList.toggle('hidden', !!lobby);
-    start.textContent = lobby ? (lobby.start ?? 'รอ…') : 'เริ่มแข่ง';
+    start.querySelector('.start-label')!.textContent = lobby ? (lobby.start ?? 'รอเจ้าห้อง…') : 'เริ่มแข่ง';
     start.disabled = !!lobby && lobby.start === null;
     box.innerHTML = lobby?.html ?? '';
     for (const [name, fn] of Object.entries(lobby?.actions ?? {})) {
@@ -110,16 +186,43 @@ export class Hud {
     this.setFocus(0);
   }
 
-  countdown(text: string) {
+  countdown(text: string, sub = '') {
     this.big.textContent = text;
-    this.big.classList.remove('pop');
-    void this.big.offsetWidth;
-    this.big.classList.add('pop');
+    this.sub.textContent = sub;
+    for (const e of [this.big, this.sub]) {
+      e.classList.remove('pop');
+      void e.offsetWidth;
+      e.classList.add('pop');
+    }
+  }
+
+  /** Dash meter (0..1); `active` while dashing. */
+  setDash(fill: number, active: boolean) {
+    const state = active ? 'active' : fill >= 1 ? 'ready' : '';
+    const q = Math.round(fill * 50) / 50;
+    if (q !== this.dashFill) {
+      this.dashFill = q;
+      this.dashBtn.style.setProperty('--p', `${q * 100}%`);
+    }
+    if (state !== this.dashState) {
+      this.dashState = state;
+      this.dashBtn.className = `dash-btn ${state}`;
+      this.root.classList.toggle('dashing', active);
+    }
+  }
+
+
+  /** Name of the zone you just ran into. */
+  zoneTitle(text: string) {
+    this.zone.textContent = text;
+    this.zone.classList.remove('show');
+    void this.zone.offsetWidth;
+    this.zone.classList.add('show');
+    this.zoneTimer = 2.6;
   }
 
   update(racers: Racer[], t: number, dt: number) {
-    const sorted = [...racers].sort((a, b) =>
-      a.finished && b.finished ? a.finishTime - b.finishTime : a.finished ? -1 : b.finished ? 1 : b.d - a.d);
+    const sorted = [...racers].sort(byFinish);
     racers.forEach((r, i) => {
       // Vertical bar: start at the bottom, finish at the top.
       this.dots[i].style.bottom = `${Math.min(1, r.d / RACE_LENGTH) * 100}%`;
@@ -128,6 +231,10 @@ export class Hud {
     this.rank.innerHTML = `${sorted.indexOf(me) + 1}<small>/${racers.length}</small>`;
     this.dist.textContent = `${Math.max(0, Math.round(RACE_LENGTH - me.d))} m`;
     this.timer.textContent = fmtTime(Math.max(0, me.finished ? me.finishTime : t));
+    if (this.zoneTimer > 0) {
+      this.zoneTimer -= dt;
+      if (this.zoneTimer <= 0) this.zone.classList.remove('show');
+    }
     if (this.toastTimer > 0) {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) this.toast.classList.remove('show');
@@ -152,17 +259,55 @@ export class Hud {
     this.root.classList.add('hit');
   }
 
-  showResults(racers: Racer[], onAgain: (btn: HTMLButtonElement) => void, onMenu: () => void) {
-    const sorted = [...racers].sort((a, b) =>
-      a.finished && b.finished ? a.finishTime - b.finishTime : a.finished ? -1 : b.finished ? 1 : b.d - a.d);
+  /** Ceremony overlay; `sorted` is the finishing order. Tags follow the podium via `placeTags`. */
+  showResults(sorted: Racer[], mapLabel: string, onAgain: (btn: HTMLButtonElement) => void, onMenu: () => void) {
     const place = sorted.findIndex((r) => r.isPlayer) + 1;
+    const me = sorted[place - 1];
+    const best = sorted[0].finished ? sorted[0].finishTime : 0;
+    const title = ['แชมป์!', 'เหรียญเงิน!', 'เหรียญทองแดง!'][place - 1] ?? `อันดับ ${place}`;
+    const sub = place === 1 ? 'เร็วที่สุดในสนาม' : place <= 3 ? 'ขึ้นโพเดียมแล้ว!' : 'เกือบแล้ว! อีกนิดเดียว';
+    const medal = (i: number) => `<span class="medal m${Math.min(i, 3)}">${i + 1}</span>`;
+    const result = (r: Racer) => r.finished ? fmtTime(r.finishTime) : `เหลือ ${Math.max(0, Math.round(RACE_LENGTH - r.d))} m`;
+    const gap = (r: Racer, i: number) => i === 0 || !r.finished ? '' : `+${(r.finishTime - best).toFixed(2)}`;
+    this.race.classList.add('hidden');
+    this.root.classList.remove('zone', 'dashing');
     this.results.classList.remove('hidden');
+    this.results.className = `results p${Math.min(place, 4)}`;
     this.results.innerHTML = `
-      <div class="place">${place === 1 ? '🏆 ชนะ!' : `อันดับ ${place}`}</div>
-      <ol>${sorted.map((r) => `<li class="${r.isPlayer ? 'me' : ''}"><span class="sw" style="background:${r.color}"></span>${r.name}<b>${r.finished ? fmtTime(r.finishTime) : `${Math.round(RACE_LENGTH - r.d)} m`}</b></li>`).join('')}</ol>
-      <div class="row"><button class="again">แข่งอีกครั้ง</button><button class="menu-btn">เปลี่ยนตัวละคร</button></div>`;
+      <div class="res-top">
+        <div class="res-kicker">${mapLabel} · ผลการแข่งขัน</div>
+        <div class="res-title">${title}</div>
+        <div class="res-sub">${sub} · <b>${result(me)}</b></div>
+      </div>
+      <div class="tags">${sorted.map((r, i) => `<div class="tag ${r.isPlayer ? 'me' : ''} t${Math.min(i, 3)}">${medal(i)}<span>${r.name}</span></div>`).join('')}</div>
+      <div class="res-panel">
+        <ol>${sorted.map((r, i) => `<li class="${r.isPlayer ? 'me' : ''}" style="--i:${i}">${medal(i)}<span class="nm">${r.name}${r.isPlayer ? '<em>คุณ</em>' : ''}</span><span class="tm"><b>${result(r)}</b><small>${gap(r, i)}</small></span></li>`).join('')}</ol>
+        <div class="row"><button class="again">แข่งอีกครั้ง</button><button class="menu-btn">เมนูหลัก</button></div>
+      </div>`;
     const again = this.results.querySelector<HTMLButtonElement>('.again')!;
     again.onclick = () => onAgain(again);
     this.results.querySelector<HTMLButtonElement>('.menu-btn')!.onclick = onMenu;
+  }
+
+  /** Screen space the 3D podium should avoid: the title above and the panel below/right. */
+  podiumInsets() {
+    // Layout boxes, not client rects: the panel's entry animation mustn't move the camera.
+    const top = this.results.querySelector<HTMLElement>('.res-top');
+    const panel = this.results.querySelector<HTMLElement>('.res-panel');
+    const side = matchMedia('(min-aspect-ratio: 5/4)').matches; // matches the CSS side-panel layout
+    return {
+      top: top ? top.offsetTop + top.offsetHeight : 0,
+      bottom: panel && !side ? innerHeight - panel.offsetTop : 0,
+      right: panel && side ? innerWidth - panel.offsetLeft : 0,
+    };
+  }
+
+  /** Name tags over the runners' heads (screen px; null = off screen / not up yet). */
+  placeTags(points: ({ x: number; y: number } | null)[]) {
+    this.results.querySelectorAll<HTMLElement>('.tag').forEach((t, i) => {
+      const p = points[i];
+      t.classList.toggle('on', !!p);
+      if (p) t.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`;
+    });
   }
 }

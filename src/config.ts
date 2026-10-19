@@ -41,3 +41,24 @@ export const PLAYER = {
 };
 
 export const RIVAL_COUNT = 3;
+
+/** Starting blocks: four boxes across the three lanes, merged after the gun. */
+/** Over the line: ease off quickly (≈12 m from full speed), still running. */
+export const runOut = (speed: number, dt: number) => Math.max(0, speed - (6 + speed * 0.9) * dt);
+/** Below this a runner past the line stops running and strikes a pose. */
+export const STOP_SPEED = 3.5;
+
+/** Extra speed out of the blocks (decays); the same for every runner. */
+export const START_BOOST = 0.12;
+
+export const START_SLOTS = [-2.55, -0.85, 0.85, 2.55];
+
+/** Runners are solid to each other: body footprint for racer-vs-racer contact. */
+export const BODY = { width: 0.72, depth: 0.62 };
+
+/**
+ * Dash: the meter fills as you run and fills a lot when you smash into
+ * things. Full = press to blast forward at max Focus, smashing through
+ * obstacles; runners you ram are stunned for a moment.
+ */
+export const DASH = { full: 100, perMeter: 0.3, perHit: 34, perBump: 8, time: 1.6, mul: 1.6, stun: 0.1 };

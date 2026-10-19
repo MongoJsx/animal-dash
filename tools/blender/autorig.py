@@ -44,7 +44,59 @@ if source:
     # Same material names as the FBX, but with every texture still wired up.
     before, mats = set(bpy.data.objects), set(bpy.data.materials)
     bpy.ops.import_scene.gltf(filepath=source)
-    for ob in set(bpy.data.objects) - before:
+    imported = set(bpy.data.objects) - before
+    # Models painted with vertex colours (no texture) lose them in the FBX:
+    # copy them back from the nearest source surface.
+    painted = [ob for ob in imported if ob.type == "MESH" and ob.data.color_attributes
+               and (ob.data.materials or len(ob.data.polygons) >= 200)]
+    if painted:
+        # Put the source where the FBX is: same steps as glb_to_mixamo_fbx.py.
+        bpy.ops.object.select_all(action="DESELECT")
+        for ob in painted:
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active = painted[0]
+        bpy.ops.object.convert(target="MESH")
+        bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+        if len(painted) > 1:
+            bpy.ops.object.join()
+        paint = bpy.context.view_layer.objects.active
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+        def bounds(ob):
+            pts = [ob.matrix_world @ Vector(c) for c in ob.bound_box]
+            return (Vector([min(p[i] for p in pts) for i in range(3)]), Vector([max(p[i] for p in pts) for i in range(3)]))
+
+        lo, hi = bounds(paint)
+        size = hi - lo
+        if size.y > size.z and size.y >= size.x:
+            paint.rotation_euler.x = -1.5708
+            bpy.ops.object.transform_apply(rotation=True)
+        lo, hi = bounds(paint)
+        blo, bhi = bounds(body)
+        paint.scale *= (bhi.z - blo.z) / (hi.z - lo.z)
+        bpy.ops.object.transform_apply(scale=True)
+        lo, hi = bounds(paint)
+        paint.location -= Vector(((lo.x + hi.x - blo.x - bhi.x) / 2, (lo.y + hi.y - blo.y - bhi.y) / 2, lo.z - blo.z))
+        bpy.ops.object.transform_apply(location=True)
+        for attr in list(body.data.color_attributes):
+            body.data.color_attributes.remove(attr)
+        mod = body.modifiers.new("colors", "DATA_TRANSFER")
+        mod.object = paint
+        mod.use_loop_data = True
+        mod.data_types_loops = {"COLOR_CORNER"}
+        mod.loop_mapping = "POLYINTERP_NEAREST"
+        mod.layers_vcol_loop_select_src = "ALL"
+        mod.layers_vcol_loop_select_dst = "NAME"
+        bpy.ops.object.select_all(action="DESELECT")
+        bpy.context.view_layer.objects.active = body
+        body.select_set(True)
+        bpy.ops.object.datalayout_transfer(modifier="colors")
+        bpy.ops.object.modifier_apply(modifier="colors")
+        if body.data.color_attributes:
+            body.data.color_attributes.active_color = body.data.color_attributes[0]
+            body.data.color_attributes.render_color_index = 0
+        print(f"proxy colors from {len(painted)} source meshes -> {len(body.data.color_attributes)} layers")
+    for ob in set(bpy.data.objects) - before:  # joining already removed some
         bpy.data.objects.remove(ob)
     originals = {m.name.rsplit(".", 1)[0] if m.name[-4:-3] == "." else m.name: m for m in set(bpy.data.materials) - mats}
     for slot in body.material_slots:
@@ -222,6 +274,7 @@ bpy.ops.export_scene.gltf(
     export_animations=False,
     export_skins=True,
     export_yup=True,
+    export_vertex_color="ACTIVE",  # even when no material node reads them
 )
 
 if preview:

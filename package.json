@@ -13,7 +13,8 @@
     "assets:mixamo": "node tools/import-mixamo.mjs",
     "assets:rig": "node tools/autorig.mjs",
     "assets:props": "node tools/build-props.mjs",
-    "assets:catalog": "sh tools/catalog-assets.sh"
+    "assets:catalog": "sh tools/catalog-assets.sh",
+    "check:contacts": "tsx tools/check-contacts.ts"
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.5.1",

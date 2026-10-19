@@ -5,7 +5,7 @@ import type { BiomeId } from './biomes.ts';
 import { visualExtent } from './propFit.ts';
 
 export type Kind =
-  | 'lowbar' | 'highbar' | 'wall' | 'hay' | 'train' | 'oncoming' | 'rolling'
+  | 'lowbar' | 'highbar' | 'wall' | 'hay' | 'oncoming' | 'rolling'
   | 'gap' | 'slow' | 'shifter' | 'pendulum' | 'spikes' | 'drop' | 'sweeper' | 'bounce';
 
 /** How a player is expected to get past; drives rival AI and the tutorial hints. */
@@ -19,7 +19,6 @@ export interface Obstacle {
   d: number; // distance of the near edge
   length: number;
   biome: BiomeId;
-  ramp: boolean; // train: has a ramp so it can be climbed
   phase: number; // 0..1 offset for timed kinds
   period: number; // seconds per cycle for timed kinds
   speed: number; // m/s for moving kinds
@@ -30,13 +29,10 @@ export interface Obstacle {
 }
 
 export interface Box { x0: number; x1: number; y0: number; y1: number; d0: number; d1: number }
-export interface Platform { x0: number; x1: number; d0: number; d1: number; top: number; ramp: number }
 
 const HALF_LANE = LANE_WIDTH / 2 - 0.1;
-export const TRAIN_TOP = 2.6;
-export const TRAIN_RAMP = 7;
 export const PENDULUM = { pivot: 6.2, arm: 5.2, amplitude: 0.85 };
-export const SWEEPER = { half: 3.7, y0: 0.15, y1: 0.6 };
+export const SWEEPER = { half: 3.7, y0: 0.15, y1: 0.6, pole: 0.21 }; // pole: drawn radius of the greybox bar
 export const DROP = { warn: 1.5, fall: 0.55, height: 14 };
 const TRIGGER: Partial<Record<Kind, number>> = { oncoming: 95, rolling: 70 };
 
@@ -128,11 +124,6 @@ export function hitBoxes(o: Obstacle, t: number, out: Box[]) {
       out.push(box(x, Math.min(HALF_LANE, v.w / 2), 0, Math.min(2.9, v.h), ...span(mid, v.d)));
       break;
     }
-    case 'train': {
-      const start = o.ramp ? d0 + TRAIN_RAMP : d0;
-      out.push(box(x, HALF_LANE, 0, TRAIN_TOP - 0.05, start, d1));
-      break;
-    }
     case 'oncoming': {
       const m = movingD(o, t);
       if (!v) { out.push(box(x, HALF_LANE * 0.85, 0, 1.9, m, m + o.length)); break; }
@@ -184,9 +175,12 @@ export function hitBoxes(o: Obstacle, t: number, out: Box[]) {
       const cd = d0 + o.length / 2;
       const cy = (SWEEPER.y0 + SWEEPER.y1) / 2;
       const hh = v ? v.h / 2 : (SWEEPER.y1 - SWEEPER.y0) / 2;
-      const thick = v ? Math.max(0.2, v.d / 2 + 0.1) : 0.45;
-      for (let i = -3; i <= 3; i++) {
-        const r = (i / 3) * SWEEPER.half;
+      // Hit only what is drawn: half the bar's thickness, no padding. Boxes
+      // overlap along the bar so nobody slips between them.
+      const thick = v ? Math.max(0.15, v.d / 2) : SWEEPER.pole;
+      const n = Math.ceil(SWEEPER.half / thick);
+      for (let i = -n; i <= n; i++) {
+        const r = (i / n) * SWEEPER.half;
         const bx = Math.cos(a) * r;
         const bd = cd + Math.sin(a) * r;
         out.push(box(bx, thick, cy - hh, cy + hh, bd - thick, bd + thick));
@@ -195,19 +189,6 @@ export function hitBoxes(o: Obstacle, t: number, out: Box[]) {
     }
     default: break;
   }
-}
-
-export function platformOf(o: Obstacle): Platform | null {
-  if (o.kind !== 'train') return null;
-  const x = laneX(o.lane);
-  return { x0: x - HALF_LANE, x1: x + HALF_LANE, d0: o.d, d1: o.d + o.length, top: TRAIN_TOP, ramp: o.ramp ? TRAIN_RAMP : 0 };
-}
-
-/** Floor height of a platform under (x, d), or -Infinity when not over it. */
-export function platformHeight(p: Platform, x: number, d: number) {
-  if (x < p.x0 || x > p.x1 || d < p.d0 || d > p.d1) return -Infinity;
-  if (p.ramp > 0 && d < p.d0 + p.ramp) return p.top * ((d - p.d0) / p.ramp);
-  return p.top;
 }
 
 /** True when (x, d) is over this obstacle's floor effect. */

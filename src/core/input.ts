@@ -1,11 +1,13 @@
 // Swipe + keyboard input, turned into discrete actions the player consumes.
-export type Action = 'left' | 'right' | 'jump' | 'slide';
+// 'dash' fires the dash when the meter is full.
+export type Action = 'left' | 'right' | 'jump' | 'slide' | 'dash';
 
 const KEYS: Record<string, Action> = {
   ArrowLeft: 'left', KeyA: 'left',
   ArrowRight: 'right', KeyD: 'right',
   ArrowUp: 'jump', KeyW: 'jump', Space: 'jump',
   ArrowDown: 'slide', KeyS: 'slide',
+  ShiftLeft: 'dash', ShiftRight: 'dash', KeyE: 'dash', Enter: 'dash',
 };
 
 const SWIPE_MIN = 24; // px
@@ -18,9 +20,12 @@ export class Input {
 
   constructor(target: HTMLElement) {
     addEventListener('keydown', (e) => {
-      const a = KEYS[e.code];
-      if (!a) return;
+      // e.key as a fallback for keyboards that report an odd code.
+      const a = KEYS[e.code] ?? KEYS[e.key];
+      if (!a || !this.enabled) return;
       e.preventDefault();
+      // A focused menu button must not also "click" on Space/Enter.
+      (document.activeElement as HTMLElement | null)?.blur?.();
       if (!e.repeat) this.push(a);
     });
     target.addEventListener('pointerdown', (e) => {
@@ -41,6 +46,11 @@ export class Input {
     const end = () => { this.start = null; };
     target.addEventListener('pointerup', end);
     target.addEventListener('pointercancel', end);
+  }
+
+  /** On-screen buttons (dash). */
+  press(a: Action) {
+    this.push(a);
   }
 
   private push(a: Action) {

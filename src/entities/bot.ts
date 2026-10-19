@@ -14,7 +14,7 @@ export function botActions(p: Player, track: Track, t: number): Action[] {
   });
   const inLane = (o: Obstacle, lane: number) => spansTrack(o.kind) || o.lane === lane;
   const need = (lane: number) => ahead.filter((o) => inLane(o, lane)).map((o) => ({ o, a: answerFor(o) }));
-  const blocked = (lane: number) => need(lane).some(({ o, a }) => a === 'dodge' && !(o.kind === 'train' && o.ramp) && !spansTrack(o.kind));
+  const blocked = (lane: number) => need(lane).some(({ o, a }) => a === 'dodge' && !spansTrack(o.kind));
 
   const lane = Math.round(p.x / laneX(1));
   if (blocked(lane)) {

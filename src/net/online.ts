@@ -12,11 +12,11 @@ const HEARTBEAT = 1; // s
 const TIMEOUT = 8; // s without a packet = friend gone
 const JOIN_TIMEOUT = 15;
 
-export type NetMove = 'jump' | 'bounce' | 'slide' | 'stumble' | 'fall';
+export type NetMove = 'jump' | 'bounce' | 'slide' | 'stumble' | 'fall' | 'launch' | 'dash' | 'stunned';
 
 export type NetMsg =
   | { t: 'char'; id: string }
-  | { t: 'start'; seed: number }
+  | { t: 'start'; seed: number; map?: string }
   | { t: 'again' }
   | { t: 's'; d: number; x: number; y: number; v: number }
   | { t: 'm'; m: NetMove }

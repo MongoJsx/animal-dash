@@ -12,6 +12,8 @@ app.appendChild(loading);
 Promise.all([
   loadCharacters(),
   loadProps((done, total) => { loading.textContent = `กำลังโหลดฉาก ${done}/${total}`; }),
+  // The podium paints its signs with the UI font.
+  Promise.all(['900 40px Kanit', 'italic 900 40px Kanit', '800 40px Kanit'].map((f) => document.fonts.load(f))).catch(() => {}),
 ]).then(([chars]) => {
   loading.remove();
   new Game(app, chars);

@@ -1,6 +1,7 @@
 // The friend's runner, rebuilt from their state packets. It keeps moving at
 // the last known speed between packets and eases toward each new position,
 // so 20 Hz updates still look smooth.
+import { DASH } from '../config.ts';
 import type { RivalMove } from '../entities/rival.ts';
 import type { NetMove } from './online.ts';
 
@@ -13,6 +14,11 @@ export class Remote {
   finished = false;
   finishTime = 0;
   moves: RivalMove[] = [];
+  private dashT = 0;
+
+  get dashing() {
+    return this.dashT > 0;
+  }
   private target: { d: number; x: number; y: number };
 
   constructor(x: number) {
@@ -27,6 +33,7 @@ export class Remote {
 
   move(m: NetMove) {
     this.moves.push(m);
+    if (m === 'dash') this.dashT = DASH.time;
   }
 
   finish(time: number) {
@@ -35,6 +42,7 @@ export class Remote {
   }
 
   step(dt: number) {
+    this.dashT = Math.max(0, this.dashT - dt);
     const t = this.target;
     t.d += this.speed * dt;
     // Snap if far off (e.g. the tab was asleep), otherwise ease in.
