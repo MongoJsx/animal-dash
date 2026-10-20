@@ -75,6 +75,8 @@ export class Game {
   private t = 0;
   private countdownT = 0; // time since the start sequence began
   private goAt = 3; // when the gun fires
+  /** Wall clock at the gun (ms), for online finish times. */
+  private gunWall = 0;
   private phase: 'marks' | 'set' | 'go' = 'marks';
   private gunT = -1; // time since the gun
   private doneT = 0;
@@ -423,6 +425,7 @@ export class Game {
         this.state = 'race';
         this.phase = 'go';
         this.gunT = 0;
+        this.gunWall = performance.now();
         this.shake = 0.12;
         this.hud.countdown('ปัง! ไป!', 'GO');
       }
@@ -452,7 +455,7 @@ export class Game {
     }
     if (this.bot && !p.finished && p.launched) actions.push(...botActions(p, this.track, this.t), ...(p.dashReady ? ['dash' as const] : []));
     p.step(dt, this.t, actions, this.track);
-    if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.t);
+    if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.finishClock());
     for (const e of p.events) this.onPlayerEvent(e);
     p.events.length = 0;
 
@@ -511,6 +514,13 @@ export class Game {
 
   private cheer: number[] = [];
   private endPose: AnimState = 'idle';
+
+  /** The time to record at the line. Online it is real time since the gun: the
+   *  game clock stalls when a device stutters or its tab sleeps, so two players'
+   *  game times can put the one who crossed second in first place. */
+  private finishClock() {
+    return this.remote ? (performance.now() - this.gunWall) / 1000 : this.t;
+  }
 
   /** Finishing place for a finish time (1 = first). */
   private placeOf(time: number) {
@@ -665,7 +675,8 @@ export class Game {
         if (e.level === 10) this.hud.flash('FOCUS MAX!', 'good');
         break;
       case 'finish': {
-        const place = 1 + this.rivals.filter((r) => r.sim.finished).length;
+        // A friend already over the line may not have sent their time yet.
+        const place = 1 + this.rivals.filter((r) => r.sim.finished || (r.sim instanceof Remote && r.sim.d >= RACE_LENGTH)).length;
         // Run it out first; the pose comes once they've slowed (see render).
         this.endPose = place === 1 ? 'victory' : 'defeat';
         this.playerLock = 99;
