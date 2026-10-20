@@ -9,6 +9,7 @@ assets-src/mixamo/upload/<id>.fbx + tools/blender/rig-joints.json
         ▼
 public/assets/characters/<id>.glb  → src/render/rig.ts ขยับกระดูกเองทุกเฟรม
 ```
+- **ตัวละครที่สร้างจากโค้ด:** ฮิปโปซิ่ง (`hippo_runner`) ปั้นจากรูปทรงพื้นฐานใน `tools/blender/model_hippo.py` (หัวฮิปโปการ์ตูน ตัวคนใส่เสื้อกล้าม กางเกงวิ่ง รองเท้าผ้าใบ) → `blender -b -P tools/blender/model_hippo.py -- assets-src/characters/hippo_runner.glb` แล้วทำต่อด้วย `glb_to_mixamo_fbx.py` และ `npm run assets:rig -- hippo_runner` เหมือนตัวอื่น (สคริปต์พิมพ์ค่า scale/dy ไว้แปลงตำแหน่งข้อต่อ)
 - **ตำแหน่งข้อต่อ** วัดด้วยมือจากภาพด้านหน้า/ด้านข้าง เก็บไว้ใน `tools/blender/rig-joints.json` (เหมือนการวางจุดใน Mixamo) ถ้าเพิ่มตัวละครใหม่ให้เพิ่มรายการที่นี่
 - **Skin weights**: คำนวณ heat weights บนโมเดลสำเนาแบบ voxel (กันปัญหาเมชไม่ปิด) แล้วโอนกลับมาที่โมเดลจริง วัสดุดึงจากไฟล์ต้นฉบับ `assets-src/characters/<id>.glb`
 - `hemZ` (ไม่บังคับ): ความสูงชายเสื้อแจ็กเก็ต ให้ชายเสื้อขยับตามสะโพกแทนการถูกต้นขาดึง (ใช้กับม้าแจ็ค)

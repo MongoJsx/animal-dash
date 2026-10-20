@@ -4,7 +4,10 @@
 import * as THREE from 'three';
 import { Rng } from '../core/rng.ts';
 import type { CountryId, Palette } from '../world/biomes.ts';
+import { assetUrl } from '../core/asset.ts';
 import { noBend } from './bend.ts';
+
+const _white = new THREE.Color(0xffffff);
 
 export interface Look {
   top: THREE.Color;
@@ -210,11 +213,55 @@ function ringGeometry(layers: Layer[]) {
   return g;
 }
 
+/**
+ * A painted backdrop instead of the drawn skyline: the picture wrapped round
+ * the horizon, repeated with every other copy mirrored so the seams meet.
+ * `focus` is where in the picture (0..1 across) to face at the start line.
+ */
+interface Backdrop { url: string; aspect: number; copies: number; focus: number; horizon: number; sky: number; ground: number }
+
+// Pictures with writing in them are cropped so the mirrored copies don't read
+// backwards (the Thai sign and flag, the "Once Upon a Time" sign).
+const BACKDROPS: Partial<Record<CountryId | 'fable', Backdrop>> = {
+  // Paper-cut Fuji over the sea. horizon: the far sea line, from the bottom;
+  // sky: the colour at the top edge, for the dome above it; ground: the colour
+  // just below its horizon, for the far ground leading up to it.
+  jp: { url: '/assets/sky/japan-paper.jpg', aspect: 2048 / 1324, copies: 6, focus: 0.43, horizon: 0.33, sky: 0x2f8fe3, ground: 0x2a7eb0 },
+  // Riverside temples, longtail boats and karst cliffs; Wat Arun ahead.
+  th: { url: '/assets/sky/thai-riverside.jpg', aspect: 1371 / 941, copies: 6, focus: 0.54, horizon: 0.4, sky: 0x1488f7, ground: 0x7491a9 },
+  // Palace on the cliffs over a river at sunset, karst peaks in the mist.
+  cn: { url: '/assets/sky/china-dragon-city.jpg', aspect: 1672 / 941, copies: 6, focus: 0.58, horizon: 0.47, sky: 0x4f9cf3, ground: 0x816b75 },
+  // Storybook village, castle over the waterfalls, snowy peaks (the fairy-tale map).
+  fable: { url: '/assets/sky/fable-village.jpg', aspect: 1213 / 1024, copies: 6, focus: 0.68, horizon: 0.35, sky: 0x3e90f4, ground: 0x8aa196 },
+};
+const BACKDROP_R = 345;
+const BACKDROP_HORIZON_Y = 30; // the picture's sea line this far above the far ground
+
+function backdropMesh(b: Backdrop) {
+  const height = (2 * Math.PI * BACKDROP_R) / b.copies / b.aspect;
+  const tex = new THREE.TextureLoader().load(assetUrl(b.url));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.MirroredRepeatWrapping;
+  tex.repeat.x = b.copies;
+  // u runs round from +z; straight ahead at the start (-z) is u = 0.5.
+  tex.offset.x = b.focus - b.copies * 0.5;
+  tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(BACKDROP_R, BACKDROP_R, height, 128, 1, true).translate(0, height / 2 - b.horizon * height + BACKDROP_HORIZON_Y, 0),
+    noBend(new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false })),
+  );
+  mesh.renderOrder = -9;
+  return mesh;
+}
+
 export class Sky {
   readonly root = new THREE.Group();
   private dome: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private ring: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private floor: THREE.Mesh<THREE.CircleGeometry, THREE.MeshLambertMaterial>;
+  private backdrop: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial> | null = null;
+  private backdropSky: THREE.Color | null = null;
+  private backdropGround: THREE.Color | null = null;
 
   constructor(country: CountryId | null, seed: number) {
     this.dome = new THREE.Mesh(
@@ -233,6 +280,22 @@ export class Sky {
     this.floor = new THREE.Mesh(new THREE.CircleGeometry(380, 40).rotateX(-Math.PI / 2), noBend(new THREE.MeshLambertMaterial({ color: 0x88aa66 })));
     this.floor.receiveShadow = false;
     this.root.add(this.dome, this.ring, this.floor);
+    const b = BACKDROPS[country ?? 'fable'];
+    if (b) {
+      // The picture has its own mountains: it replaces the drawn skyline.
+      this.backdrop = backdropMesh(b);
+      this.backdropSky = new THREE.Color(b.sky);
+      this.backdropGround = new THREE.Color(b.ground);
+      // The far ground runs into the picture: its colour, not fog white (a
+      // high camera, like on the Great Wall, sees a lot of it).
+      this.floor.material.fog = false;
+      // Drawn under the picture, so the picture's lower half (water, rooftops)
+      // covers the far ground instead of stopping dead at the horizon.
+      this.floor.material.depthWrite = false;
+      this.floor.renderOrder = -11;
+      this.ring.visible = false;
+      this.root.add(this.backdrop);
+    }
   }
 
   update(cam: THREE.Vector3, look: Look, groundY: number) {
@@ -246,6 +309,15 @@ export class Sky {
     sunDirection(look.sunAngle, u.sunDir.value);
     this.ring.material.uniforms.hazeColor.value.copy(look.horizon);
     this.floor.material.color.copy(look.side).lerp(look.horizon, 0.25);
+    if (this.backdrop) {
+      this.backdrop.position.set(cam.x, groundY, cam.z);
+      // The picture is a sunny day: dim and tint it to the zone's light (dusk, snow).
+      const tint = this.backdrop.material.color.copy(look.hemiSky).lerp(_white, 0.3).multiplyScalar(Math.min(1, look.sunI / 2.4) ** 1.6);
+      // Above the picture's top edge the dome carries on in its sky blue.
+      u.top.value.copy(this.backdropSky!).multiply(tint);
+      u.horizon.value.copy(this.backdropSky!).multiply(tint);
+      this.floor.material.color.copy(this.backdropGround!).multiply(tint);
+    }
   }
 
   dispose() {
@@ -255,5 +327,10 @@ export class Sky {
     this.ring.material.dispose();
     this.floor.geometry.dispose();
     this.floor.material.dispose();
+    if (this.backdrop) {
+      this.backdrop.geometry.dispose();
+      this.backdrop.material.map?.dispose();
+      this.backdrop.material.dispose();
+    }
   }
 }

@@ -13,7 +13,12 @@ export class Remote {
   laneVelocity = 0;
   finished = false;
   finishTime = 0;
+  halted = false;
   moves: RivalMove[] = [];
+  /** Their shield bubble, for drawing. */
+  shield = false;
+  /** Flying on a rocket, for drawing. */
+  rocket = false;
   private dashT = 0;
 
   get dashing() {
@@ -34,6 +39,11 @@ export class Remote {
   move(m: NetMove) {
     this.moves.push(m);
     if (m === 'dash') this.dashT = DASH.time;
+  }
+
+  /** We won: their own game stops them; this is just for drawing. */
+  halt() {
+    if (!this.finished) this.halted = true;
   }
 
   finish(time: number) {

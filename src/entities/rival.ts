@@ -3,8 +3,9 @@
 // for speed, Focus and penalties as the player so races stay close. They are
 // solid: they react to the gun, merge out of their starting box, get held up
 // behind slower runners and pull out to overtake when a lane is free.
-import { BODY, DASH, FOCUS, PENALTY, PLAYER, START_BOOST, baseSpeed, laneX, runOut } from '../config.ts';
+import { BODY, DASH, FOCUS, ITEM, PENALTY, PLAYER, RACE_LENGTH, START_BOOST, baseSpeed, laneX, runOut } from '../config.ts';
 import { Rng } from '../core/rng.ts';
+import type { ItemKind } from '../world/items.ts';
 import { answerFor, spansTrack, type Answer } from '../world/obstacles.ts';
 import type { Track } from '../world/track.ts';
 
@@ -28,6 +29,8 @@ export class Rival {
   focus = 0;
   finished = false;
   finishTime = 0;
+  /** Stopped short of the line because someone else won. */
+  halted = false;
   launched = false;
   moves: RivalMove[] = [];
   dash = 0;
@@ -46,6 +49,17 @@ export class Rival {
   private blockedT = 0;
   private rng: Rng;
   private skill: RivalSkill;
+  item: ItemKind | null = null;
+  private useAt = 0; // seconds until it decides to use the held item
+  itemBoostT = 0;
+  /** Seconds of rocket flight left. */
+  flyT = 0;
+  shield = false;
+  private inkT = 0;
+  /** Items used this step that touch other runners (ink); the game drains it. */
+  fired: ItemKind[] = [];
+  /** Item boxes this runner has taken (ids). */
+  took = new Set<number>();
 
   constructor(seed: number, skill: RivalSkill, x: number, lane: number) {
     this.rng = new Rng(seed);
@@ -65,6 +79,7 @@ export class Rival {
   /** Rammed by a dashing runner. */
   stun(time: number, push: number) {
     if (this.dashing || this.finished) return;
+    if (this.shield) { this.shield = false; return; }
     this.stunT = Math.max(this.stunT, time);
     this.speedMul = 0.45;
     this.recoverRate = 0.55 / 0.7;
@@ -149,6 +164,16 @@ export class Rival {
       this.speed = 0;
       return;
     }
+    if (this.halted) {
+      // The race is over: ease to a stop (never over the line) and come down if in the air.
+      this.speed = runOut(this.speed, dt);
+      this.d = Math.min(this.d + this.speed * dt, Math.max(this.d, RACE_LENGTH - 1));
+      this.laneVelocity = 0;
+      this.vy -= PLAYER.gravity * dt;
+      this.y = Math.max(0, this.y + this.vy * dt);
+      if (this.y === 0) this.vy = 0;
+      return;
+    }
     const r = track.rows[this.row];
     // Plan the next row a little before reaching it.
     if (r && this.planned !== this.row && this.d > r.d0 - 18) {
@@ -160,11 +185,17 @@ export class Rival {
           Number(this.occupied(a, others)) - Number(this.occupied(b, others)) || Math.abs(a - this.lane) - Math.abs(b - this.lane));
         if (choices.length) this.moveTo(choices[0]);
       }
-      this.plan = { answer: answers[this.lane + 1], fumble: this.rng.chance(this.skill.mistake), at: r.d0 };
+      // Ink in the eyes: much more likely to fumble.
+      const mistake = this.inkT > 0 ? Math.max(0.6, this.skill.mistake) : this.skill.mistake;
+      this.plan = { answer: answers[this.lane + 1], fumble: this.rng.chance(mistake), at: r.d0 };
     }
 
     this.stunT = Math.max(0, this.stunT - dt);
     this.dashT = Math.max(0, this.dashT - dt);
+    this.itemBoostT = Math.max(0, this.itemBoostT - dt);
+    this.inkT = Math.max(0, this.inkT - dt);
+    this.useAt -= dt;
+    if (this.item && this.useAt <= 0 && !this.finished && this.stunT <= 0) this.thinkItem(others);
     // Dash when the meter is full, at a moment of its own choosing.
     if (this.dash >= DASH.full && !this.dashing && !this.finished && this.rng.chance(dt * 0.7)) {
       this.dash = 0;
@@ -176,8 +207,10 @@ export class Rival {
 
     if (this.plan && this.d >= this.plan.at - 2.5) {
       const { answer, fumble } = this.plan;
-      if (this.dashing) {
-        // Smashes straight through.
+      if (this.dashing || this.flyT > 0 || this.y > 1.5) {
+        // Smashes straight through, or flies over it.
+      } else if (fumble && answer !== 'none' && this.shield) {
+        this.shield = false; // the bubble takes it
       } else if (fumble && answer !== 'none') {
         this.dash = Math.min(DASH.full, this.dash + DASH.perHit);
         this.speedMul = PENALTY.stumble.speed;
@@ -218,7 +251,8 @@ export class Rival {
       ? runOut(this.speed, dt)
       : this.stunT > 0 ? 0
       : this.dashing ? baseSpeed(this.d) * focusMul * DASH.mul
-      : baseSpeed(this.d) * this.skill.pace * band * focusMul * this.speedMul * (1 + this.boost);
+      : baseSpeed(this.d) * this.skill.pace * band * focusMul * this.speedMul * (1 + this.boost) *
+        (this.itemBoostT > 0 ? ITEM.boostMul : 1) * (this.flyT > 0 ? ITEM.rocketMul : 1);
     this.d += this.speed * dt;
     if (!this.dashing && !this.finished) this.dash = Math.min(DASH.full, this.dash + this.speed * dt * DASH.perMeter);
 
@@ -227,15 +261,85 @@ export class Rival {
     const rate = this.d < 12 ? 3 : 10;
     this.x += (laneX(this.lane) - this.x) * Math.min(1, dt * rate);
     this.laneVelocity = (this.x - prevX) / dt;
-    this.vy -= PLAYER.gravity * dt;
+    if (this.flyT > 0) {
+      // On a rocket: climb to cruising height and hold it, then drop.
+      this.flyT = Math.max(0, this.flyT - dt);
+      this.vy = this.flyT > 0 ? (ITEM.flyHeight - this.y) * 3 : 0;
+    } else {
+      this.vy -= PLAYER.gravity * dt;
+    }
     this.y = Math.max(0, this.y + this.vy * dt);
     if (this.y === 0) this.vy = 0;
     this.slideT = Math.max(0, this.slideT - dt);
   }
 
+  /** Ran through an item box; false if already holding one. */
+  give(item: ItemKind) {
+    if (this.item || this.finished) return false;
+    this.item = item;
+    this.useAt = ITEM.roll + this.rng.range(0.3, 1.5);
+    return true;
+  }
+
+  /** Splattered by someone behind. */
+  ink() {
+    if (!this.finished) this.inkT = ITEM.inkTime;
+  }
+
+  get inked() {
+    return this.inkT > 0;
+  }
+
+  /** Use the held item when it pays off. */
+  private thinkItem(others: Traffic[]) {
+    const item = this.item!;
+    const plan = this.plan;
+    switch (item) {
+      case 'boost':
+        // Best straight after a stumble; otherwise whenever.
+        if (this.speedMul < 0.8 || this.rng.chance(0.02)) {
+          this.itemBoostT = ITEM.boostTime;
+          this.speedMul = 1;
+          break;
+        }
+        return;
+      case 'shield':
+        this.shield = true;
+        break;
+      case 'ink':
+        if (!others.some((o) => o.d > this.d + 1 && o.d < this.d + 80)) return;
+        this.fired.push('ink');
+        break;
+      case 'spring':
+        // Hop the next row it would have to deal with.
+        if (!plan || plan.answer === 'none' || this.d < plan.at - 5 || this.y > 0) return;
+        this.vy = ITEM.springVelocity;
+        this.slideT = 0;
+        this.plan = null;
+        this.moves.push('bounce');
+        break;
+      case 'rocket':
+        this.flyT = ITEM.flyTime;
+        this.slideT = 0;
+        this.speedMul = 1;
+        break;
+    }
+    this.item = null;
+  }
+
+  /** Someone else crossed the line first: stop racing where you are. */
+  halt() {
+    if (this.finished || this.halted) return;
+    this.halted = true;
+    this.flyT = 0;
+    this.dashT = 0;
+    this.itemBoostT = 0;
+  }
+
   finish(t: number) {
-    if (this.finished) return;
+    if (this.finished || this.halted) return;
     this.finished = true;
     this.finishTime = t;
+    this.flyT = 0;
   }
 }

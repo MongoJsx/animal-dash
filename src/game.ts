@@ -1,6 +1,6 @@
 // Ties simulation, rendering and UI together: menu → countdown → race → results.
 import * as THREE from 'three';
-import { DASH, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
+import { DASH, ITEM, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
 import { Input } from './core/input.ts';
 import { Rng } from './core/rng.ts';
 import { botActions } from './entities/bot.ts';
@@ -13,12 +13,14 @@ import { CharacterView, preloadCharacters, type AnimState, type CharacterDef } f
 import { installBend, setBendPath } from './render/bend.ts';
 import { Debris } from './render/debris.ts';
 import { Environment } from './render/environment.ts';
+import { Bubble, ItemBoxes, RocketPack } from './render/itemView.ts';
 import { warmUpProps } from './render/props.ts';
 import { ObstacleView } from './render/obstacleView.ts';
 import { Podium } from './render/podium.ts';
 import { Hud, byFinish, desktop, type Racer } from './ui/hud.ts';
 import { BIOMES, MAPS, biomeAt, isMapId, type BiomeId, type MapId } from './world/biomes.ts';
 import { sunDirection } from './render/sky.ts';
+import { ITEM_NAME, rollItem, touches, type ItemKind } from './world/items.ts';
 import { movingD, type Obstacle } from './world/obstacles.ts';
 import { TrackPath } from './world/path.ts';
 import { buildTrack, type Track } from './world/track.ts';
@@ -44,7 +46,11 @@ const MARKS_TIME = 1.7;
 const LAUNCH_AT = 0.4; // everyone leaves the blocks together, this long after the gun
 const BURST_TIME = 1.25;
 
-interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number }
+interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number; bubble: Bubble; shield: boolean; rocket: RocketPack }
+
+const POP_COLORS = [0x7ae0ff, 0xffffff, 0xbdf3ff];
+const INK_COLORS = [0x120c24, 0x2a1f4d, 0x000000];
+const BOX_COLORS = [0xffe066, 0xff9f1c, 0xff5d8f, 0xffffff];
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -53,6 +59,9 @@ export class Game {
   private sun = new THREE.DirectionalLight(0xffffff, 2.2);
   private hemi = new THREE.HemisphereLight(0xffffff, 0x8d7b68, 1.7);
   private debris = new Debris();
+  private itemBoxes: ItemBoxes | null = null;
+  private playerBubble = new Bubble();
+  private playerRocket = new RocketPack();
   private input: Input;
   private hud: Hud;
   private clock = new THREE.Clock();
@@ -87,6 +96,11 @@ export class Game {
   private online: Online | null = null;
   private remoteChar: string | null = null;
   private remote: Remote | null = null;
+  /** Someone has crossed the line; the race clock stops at `overT` for the rest. */
+  private raceOver = false;
+  private overT = 0;
+  /** Menu: choosing between a new room and typing in a friend's code. */
+  private joining = false;
   private sendTick = 0;
   private podium: Podium | null = null;
   /** Finishing order for the ceremony: views by place. */
@@ -119,7 +133,8 @@ export class Game {
     this.input = new Input(container);
     this.hud = new Hud(container);
     this.hud.onDash = () => this.input.press('dash');
-    this.scene.add(this.debris.mesh);
+    this.hud.onItem = () => this.input.press('item');
+    this.scene.add(this.debris.mesh, this.playerBubble.mesh, this.playerRocket.root);
     addEventListener('keydown', (e) => this.menuKey(e));
 
     addEventListener('resize', () => this.resize());
@@ -141,8 +156,8 @@ export class Game {
       Object.assign(window, {
         __debug: () => ({
           fps, state: this.state, t: +this.t.toFixed(2), d: +this.player.d.toFixed(1), speed: +this.player.speed.toFixed(1), dash: Math.round(this.player.dash), dashing: this.player.dashing,
-          focus: this.player.focus, calls: this.renderer.info.render.calls, tris: this.renderer.info.render.triangles,
-          views: this.views.size, x: +this.player.x.toFixed(2), map: this.map,
+          focus: this.player.focus, item: this.player.item, shield: this.player.shield, calls: this.renderer.info.render.calls, tris: this.renderer.info.render.triangles,
+          views: this.views.size, x: +this.player.x.toFixed(2), y: +this.player.y.toFixed(2), map: this.map,
           rivals: this.rivals.map((r) => ({ d: +r.sim.d.toFixed(1), x: +r.sim.x.toFixed(2) })),
           breakdown: this.triBreakdown(),
         }),
@@ -190,10 +205,16 @@ export class Game {
       this.scene.remove(this.env.root);
       this.env.dispose();
     }
-    for (const r of this.rivals) this.scene.remove(r.view.root);
+    for (const r of this.rivals) this.scene.remove(r.view.root, r.bubble.mesh, r.rocket.root);
     this.rivals = [];
 
     this.track = buildTrack(seed, this.map);
+    if (this.itemBoxes) {
+      this.scene.remove(this.itemBoxes.mesh);
+      this.itemBoxes.dispose();
+    }
+    this.itemBoxes = new ItemBoxes(this.track.items);
+    this.scene.add(this.itemBoxes.mesh);
     this.path = new TrackPath(seed, this.track.biomes);
     setBendPath(this.path);
     this.env = new Environment(seed, this.track.biomes, this.track, this.path);
@@ -203,6 +224,7 @@ export class Game {
     this.player.startSlot(START_SLOTS[PLAYER_SLOT], -1);
     this.t = 0;
     this.zone = null;
+    this.raceOver = false;
   }
 
   private setPlayerView(id: string) {
@@ -224,7 +246,7 @@ export class Game {
       this.playerView!.play('victory');
       this.menuCheer = 1.1;
       this.online?.send({ t: 'char', id });
-    }, () => this.onStartPressed(), () => this.connect(Online.host()), this.map, (map) => {
+    }, () => this.onStartPressed(), () => { this.joining = true; this.updateLobby(); }, this.map, (map) => {
       this.map = map;
       try { localStorage.setItem('map', map); } catch { /* private mode */ }
       this.reset(1234);
@@ -280,18 +302,31 @@ export class Game {
       case 'fin':
         this.remote?.finish(m.time);
         break;
+      case 'ink':
+        if (this.state === 'race') this.player.ink();
+        break;
+      case 'sh':
+        if (this.remote) this.remote.shield = m.on;
+        break;
+      case 'rk':
+        if (this.remote) this.remote.rocket = m.on;
+        break;
     }
   }
 
   private onStartPressed() {
-    if (!this.online) this.startRace();
+    if (!this.online) { this.joining = false; this.startRace(); }
     else if (this.online.role === 'host' && this.online.connected) this.startRace();
   }
 
   private updateLobby() {
     if (this.state !== 'menu') return;
     const o = this.online;
-    if (!o) { this.hud.setLobby(null); return; }
+    if (!o) {
+      if (this.joining) this.showJoin();
+      else this.hud.setLobby(null);
+      return;
+    }
     const friend = this.remoteChar ? this.def(this.remoteChar).name : '…';
     const leave = { leave: () => this.leaveOnline() };
     let html: string;
@@ -316,6 +351,46 @@ export class Game {
         <div class="acts"><button data-act="leave">ออกจากห้อง</button></div>`;
     }
     this.hud.setLobby({ html, start, actions });
+  }
+
+  /** Play with a friend: open a new room, or type in the code of theirs. */
+  private showJoin(error = '', typed = '') {
+    const html = `<button class="host-btn" data-act="host">🏠 สร้างห้องใหม่</button>
+      <div class="or">หรือกรอกรหัสห้องของเพื่อน</div>
+      <div class="join-row"><input class="room-code" maxlength="40" placeholder="รหัส 5 ตัว" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="join-btn" data-act="join">เข้าห้อง</button></div>
+      ${error ? `<div class="err">${error}</div>` : ''}
+      <div class="acts"><button data-act="cancel">ยกเลิก</button></div>`;
+    this.hud.setLobby({
+      html,
+      start: 'เริ่มแข่งคนเดียว',
+      actions: {
+        host: () => { this.joining = false; this.connect(Online.host()); },
+        join: () => this.joinTyped(),
+        cancel: () => { this.joining = false; this.updateLobby(); },
+      },
+    });
+    const input = document.querySelector<HTMLInputElement>('.lobby .room-code');
+    if (!input) return;
+    input.value = typed;
+    // Keys typed here are text, not menu shortcuts (Enter = join).
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); this.joinTyped(); }
+    });
+    if (error) input.focus();
+  }
+
+  private joinTyped() {
+    const raw = document.querySelector<HTMLInputElement>('.lobby .room-code')?.value ?? '';
+    const room = Online.parseCode(raw);
+    if (!room) {
+      this.showJoin(raw.trim() ? 'รหัสห้องไม่ถูกต้อง (5 ตัวอักษร เช่น ABC23)' : 'กรอกรหัสห้องก่อน', raw);
+      return;
+    }
+    this.joining = false;
+    const online = Online.join(room.code, room.broker);
+    history.replaceState(null, '', online.link);
+    this.connect(online);
   }
 
   private shareLink(o: Online) {
@@ -343,8 +418,9 @@ export class Game {
       const def = this.def(this.remoteChar ?? this.chars[0].id);
       this.remote = new Remote(START_SLOTS[theirs]);
       const view = new CharacterView(def, { castShadow: false });
-      this.scene.add(view.root);
-      this.rivals.push({ sim: this.remote, view, def, lock: 0, moveIndex: 0 });
+      const bubble = new Bubble(), rocket = new RocketPack();
+      this.scene.add(view.root, bubble.mesh, rocket.root);
+      this.rivals.push({ sim: this.remote, view, def, lock: 0, moveIndex: 0, bubble, shield: false, rocket });
     } else {
       const rng = new Rng(seed ^ 0x5bd1e995);
       const pool = rng.shuffle(this.chars.filter((c) => c.id !== this.selected));
@@ -353,8 +429,9 @@ export class Game {
         const sim = new Rival(seed + i * 101, SKILLS[i], START_SLOTS[slot], lane);
         // Rivals use a cheap blob shadow: four shadow-casting characters cost ~60k tris.
         const view = new CharacterView(pool[i], { castShadow: false });
-        this.scene.add(view.root);
-        this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0 });
+        const bubble = new Bubble(), rocket = new RocketPack();
+        this.scene.add(view.root, bubble.mesh, rocket.root);
+        this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0, bubble, shield: false, rocket });
       }
     }
     this.hud.startRace(this.racers());
@@ -381,6 +458,8 @@ export class Game {
     if (import.meta.env.DEV && params.has('nocount')) this.goAt = 0.05;
     if (import.meta.env.DEV && params.has('hold')) this.goAt = 1e9;
     if (import.meta.env.DEV && params.has('dash')) this.player.dash = DASH.full;
+    const item = import.meta.env.DEV ? params.get('item') : null;
+    if (item && item in ITEM_NAME && this.player.give(item as ItemKind)) this.player.itemRoll = 0;
   }
 
   private racers(): Racer[] {
@@ -453,7 +532,7 @@ export class Game {
       actions.length = 0;
       actions.push(...keep);
     }
-    if (this.bot && !p.finished && p.launched) actions.push(...botActions(p, this.track, this.t), ...(p.dashReady ? ['dash' as const] : []));
+    if (this.bot && !p.finished && p.launched) actions.push(...botActions(p, this.track, this.t), ...(p.dashReady ? ['dash' as const] : []), ...(p.itemReady ? ['item' as const] : []));
     p.step(dt, this.t, actions, this.track);
     if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.finishClock());
     for (const e of p.events) this.onPlayerEvent(e);
@@ -467,24 +546,42 @@ export class Game {
       if (r.sim instanceof Remote) { r.sim.step(dt); continue; }
       r.sim.step(dt, this.track, p.d, this.traffic(r.sim));
       if (!r.sim.finished && r.sim.d >= RACE_LENGTH) r.sim.finish(this.t);
+      for (const item of r.sim.fired) if (item === 'ink') this.splatAhead(r.sim);
+      r.sim.fired.length = 0;
     }
     this.contacts();
+    this.collectItems();
 
-    if (this.state === 'race' && p.finished) {
+    // The first one over the line ends the race for everybody.
+    if (!this.raceOver && (p.finished || this.rivals.some((r) => r.sim.finished))) this.endRace();
+
+    if (this.state === 'race' && (p.finished || p.halted)) {
       this.state = 'done';
       this.doneT = 0;
       this.input.enabled = false;
     }
     if (this.state === 'done') {
       this.doneT += dt;
-      const allIn = this.rivals.every((r) => r.sim.finished);
-      // A friend gets longer to finish than the bots, as long as they're still there.
-      const wait = this.remote && this.online?.connected ? 25 : 6;
-      if (this.doneT > 2.5 && (allIn || this.doneT > wait)) {
+      // Everyone has stopped (or crossed); give them a moment to pull up.
+      if (this.doneT > 3) {
         this.state = 'results';
         this.ceremony();
       }
     }
+  }
+
+  /** Somebody crossed the line: everyone still running stops where they are. */
+  private endRace() {
+    this.raceOver = true;
+    this.overT = this.t;
+    const p = this.player;
+    for (const r of this.rivals) r.sim.halt();
+    if (p.finished) return; // the finish flash already said it
+    p.halt();
+    this.endPose = 'defeat';
+    this.playerLock = 99;
+    const winner = this.racers().filter((r) => r.finished).sort(byFinish)[0];
+    this.hud.flash(`${winner?.name ?? 'มีคน'} เข้าเส้นชัยแล้ว! จบการแข่งขัน`, 'bad', 2.8);
   }
 
   // ── Ceremony ────────────────────────────────────────────────────────
@@ -595,12 +692,63 @@ export class Game {
     resolveContacts([this.player, ...this.rivals.map((r) => r.sim)]);
   }
 
+  /** Runners through item boxes (a friend online collects on their own screen). */
+  private fullWarned = -1;
+  /** The player has used an item at least once (stops the how-to hint). */
+  private usedItem = false;
+
+  private collectItems() {
+    const runners: (Player | Rival)[] = [this.player];
+    for (const r of this.rivals) if (r.sim instanceof Rival) runners.push(r.sim);
+    const all = [this.player, ...this.rivals.map((r) => r.sim)];
+    for (const s of runners) {
+      if (s.finished) continue;
+      for (const box of this.track.items) {
+        if (box.d > s.d + 2) break;
+        if (s.took.has(box.id) || !touches(box, s.x, s.y, s.d)) continue;
+        // Further back = better odds of a boost; ink only with someone to hit.
+        const ahead = all.filter((o) => o !== s && o.d > s.d).length;
+        if (!s.give(rollItem(Math.random(), ahead / Math.max(1, all.length - 1), ahead > 0))) {
+          // Say why the box didn't give anything (once per box).
+          if (s === this.player && this.fullWarned !== box.id) {
+            this.fullWarned = box.id;
+            this.hud.flash(desktop ? 'ไอเท็มเต็ม! กด Q ใช้ก่อน' : 'ไอเท็มเต็ม! แตะปุ่มซ้ายล่างใช้ก่อน');
+          }
+          continue;
+        }
+        s.took.add(box.id);
+        this.debris.burst(laneX(box.lane), ITEM.boxY, box.d, BOX_COLORS, s === this.player ? 14 : 6, 0.6, s.speed * 0.6);
+      }
+    }
+  }
+
+  /** Ink: splatters every runner ahead of `from`. */
+  private splatAhead(from: Player | Rival) {
+    let hits = 0;
+    const p = this.player;
+    if (from !== p && !p.finished && p.d > from.d) { p.ink(); hits++; }
+    for (const r of this.rivals) {
+      const s = r.sim;
+      if (s === from || s.finished || s.d <= from.d) continue;
+      if (s instanceof Rival) s.ink();
+      else if (from === p) this.online?.send({ t: 'ink' }); // the friend splatters their own screen
+      else continue;
+      hits++;
+      this.debris.burst(s.x, s.y + 1.6, s.d, INK_COLORS, 14, 0.8, s.speed * 0.6);
+    }
+    return hits;
+  }
+
   private onPlayerEvent(e: PlayerEvent) {
     const v = this.playerView;
     if (this.remote && this.online?.connected) {
       if (e.type === 'finish') this.online.send({ t: 'fin', time: this.player.finishTime });
       else if (['jump', 'bounce', 'slide', 'stumble', 'fall', 'dash', 'stunned'].includes(e.type)) this.online.send({ t: 'm', m: e.type as NetMove });
       else if (e.type === 'shoved') this.online.send({ t: 'm', m: 'stunned' }); // the friend sees the stagger
+      else if (e.type === 'item' && e.item === 'shield') this.online.send({ t: 'sh', on: true });
+      else if (e.type === 'shieldBlock') this.online.send({ t: 'sh', on: false });
+      else if (e.type === 'item' && e.item === 'rocket') this.online.send({ t: 'rk', on: true });
+      else if (e.type === 'rocketEnd') this.online.send({ t: 'rk', on: false });
     }
     switch (e.type) {
       case 'jump':
@@ -670,6 +818,47 @@ export class Game {
         this.hud.flash('โดนพุ่งชน!');
         this.hud.hit();
         break;
+      case 'pickup':
+        // Until they've used one, remind them how.
+        this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะปุ่มซ้ายล่างเพื่อใช้', 'good');
+        break;
+      case 'item': {
+        const p = this.player;
+        this.usedItem = true;
+        if (e.item === 'boost') {
+          v?.play('burst', 0.6);
+          this.playerLock = 0.6;
+          this.shake = Math.max(this.shake, 0.15);
+          this.hud.flash('บูสต์!', 'good');
+        } else if (e.item === 'shield') {
+          this.debris.burst(p.x, p.y + 1, p.d, POP_COLORS, 10, 0.8, p.speed);
+          this.hud.flash('เปิดโล่!', 'good');
+        } else if (e.item === 'ink') {
+          const hits = this.splatAhead(p);
+          this.hud.flash(hits ? `พ่นหมึกใส่ ${hits} คน!` : 'ไม่มีใครอยู่ข้างหน้า…', hits ? 'good' : 'bad');
+        } else if (e.item === 'rocket') {
+          this.shake = Math.max(this.shake, 0.3);
+          this.debris.burst(p.x, 0.2, p.d, [0xffa21f, 0xffe066, 0xdddddd], 18, 0.8, 0);
+          this.hud.flash(`🚀 ${ITEM_NAME.rocket}! บิน ${ITEM.flyTime} วิ`, 'good');
+        } else {
+          this.debris.burst(p.x, 0.2, p.d, [0x9be564, 0xffffff, 0xffd166], 12, 0.6, p.speed * 0.5);
+          this.hud.flash(`${ITEM_NAME.spring}!`, 'good');
+        }
+        break;
+      }
+      case 'rocketEnd':
+        this.hud.flash('จรวดหมด! ลงจอด', 'good');
+        break;
+      case 'shieldBlock':
+        this.shake = Math.max(this.shake, 0.15);
+        this.debris.burst(this.player.x, this.player.y + 1, this.player.d + 0.6, POP_COLORS, 16, 0.9, this.player.speed);
+        this.hud.flash('โล่กันไว้!', 'good');
+        break;
+      case 'inked':
+        this.hud.ink(ITEM.inkTime);
+        this.hud.flash('โดนหมึก!');
+        this.hud.hit();
+        break;
       case 'focus':
         this.hud.setFocus(e.level);
         if (e.level === 10) this.hud.flash('FOCUS MAX!', 'good');
@@ -719,17 +908,21 @@ export class Game {
       if (!this.podium) v.root.position.set(p.x, p.y, -p.d);
       if (this.state === 'race') {
         this.playerLock -= dt;
-        if (this.playerLock <= 0 && p.launched && p.grounded && !p.sliding && !p.stunned && v.state !== 'run') v.play('run');
+        if (this.playerLock <= 0 && p.launched && (p.grounded || p.flying) && !p.sliding && !p.stunned && v.state !== 'run') v.play('run');
       } else if (this.state === 'done' && !this.podium) {
         this.playerLock -= dt;
         if (p.speed < STOP_SPEED) { if (v.state !== this.endPose) v.play(this.endPose); }
         else if (this.playerLock <= 0 && p.grounded && v.state !== 'run') v.play('run');
       }
       if (p.jolt) { v.kick(p.jolt); p.jolt = 0; }
-      if (p.dashing) this.trail(p.x, p.y, p.d);
+      if (p.dashing || p.itemBoostT > 0) this.trail(p.x, p.y, p.d);
+      this.playerBubble.update(p.shield && !this.podium, p.x, p.y, p.d, dt);
+      this.playerRocket.update(p.flying && !this.podium, p.x, p.y, p.d, dt);
+      if (p.flying) this.exhaust(p.x, p.y, p.d);
       v.update(dt, this.podium ? 0 : p.speed, this.podium ? 0 : p.laneVelocity);
     }
     this.debris.update(dt);
+    this.itemBoxes?.update(this.t, p.d, p.took);
     for (const r of this.rivals) {
       const s = r.sim;
       while (r.moveIndex < s.moves.length) {
@@ -747,12 +940,21 @@ export class Game {
       const started = s instanceof Rival ? s.launched : s.d > 0.3;
       if (r.lock <= 0 && started && (this.state === 'race' || this.state === 'done')) {
         // Past the line they run it out, then the winner celebrates.
-        const stopped = s.finished && s.speed < STOP_SPEED;
-        r.view.play(!stopped ? 'run' : this.placeOf(s.finishTime) === 1 ? 'victory' : 'idle');
+        const stopped = (s.finished || s.halted) && s.speed < STOP_SPEED;
+        r.view.play(!stopped ? 'run' : !s.finished ? 'defeat' : this.placeOf(s.finishTime) === 1 ? 'victory' : 'idle');
       }
       if (!this.podium) r.view.root.position.set(s.x, s.y, -s.d);
       if ('jolt' in s && s.jolt) { r.view.kick(s.jolt); s.jolt = 0; }
-      if (s.dashing) this.trail(s.x, s.y, s.d);
+      if (s.dashing || (s instanceof Rival && s.itemBoostT > 0)) this.trail(s.x, s.y, s.d);
+      // Shield bubble; pops in a burst when it takes a hit.
+      if (r.shield && !s.shield) this.debris.burst(s.x, s.y + 1, s.d + 0.6, POP_COLORS, 14, 0.9, s.speed);
+      r.shield = s.shield;
+      r.bubble.update(s.shield && !this.podium, s.x, s.y, s.d, dt);
+      const flying = s instanceof Rival ? s.flyT > 0 : s.rocket;
+      r.rocket.update(flying && !this.podium, s.x, s.y, s.d, dt);
+      if (flying) this.exhaust(s.x, s.y, s.d);
+      // Ink dripping off a splattered rival.
+      if (s instanceof Rival && s.inked && Math.random() < 0.3) this.debris.burst(s.x, s.y + 1.6, s.d, INK_COLORS, 1, 0.5, s.speed);
       // Rivals between the camera and the player would hide what's coming.
       const behind = p.d - s.d;
       const racing = this.state === 'race' || this.state === 'done';
@@ -779,14 +981,22 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
     if (this.podium) this.placeTags();
     if (this.state === 'race' || this.state === 'done') {
-      this.hud.update(this.racers(), this.t, dt);
+      this.hud.update(this.racers(), this.raceOver ? this.overT : this.t, dt);
       this.hud.setDash(p.dash / DASH.full, p.dashing);
+      this.hud.setItem(p.item, p.itemRoll > 0, this.t, p.items.length);
+      this.hud.setFlight(p.flyT);
     }
   }
 
   /** Speed streaks behind a dashing runner. */
   private trail(x: number, y: number, d: number) {
     for (let i = 0; i < 2; i++) this.debris.streak(x + (Math.random() - 0.5) * 0.9, y + 0.2 + Math.random() * 1.4, d - 0.6 - Math.random() * 0.8, Math.random() < 0.5 ? 0xffffff : 0xffd166);
+  }
+
+  /** Fire and smoke out of a rocket pack. */
+  private exhaust(x: number, y: number, d: number) {
+    this.debris.streak(x + (Math.random() - 0.5) * 0.3, y + 0.45, d - 0.35 - Math.random() * 0.6, Math.random() < 0.5 ? 0xffa21f : 0xffe066);
+    if (Math.random() < 0.3) this.debris.burst(x, y + 0.5, d - 0.4, [0xdddddd, 0xbbbbbb], 1, 0.3, 0);
   }
 
   /** Smashed: pop the model and throw chunks in its colours. */

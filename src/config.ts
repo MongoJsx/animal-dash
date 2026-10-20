@@ -62,3 +62,25 @@ export const BODY = { width: 0.72, depth: 0.62 };
  * obstacles; runners you ram are stunned for a moment.
  */
 export const DASH = { full: 100, perMeter: 0.3, perHit: 34, perBump: 8, time: 1.6, mul: 1.6, stun: 0.1 };
+
+/**
+ * Item boxes between obstacle rows: run through one to get a random item
+ * (up to ITEM.max held), press to use it.
+ * - boost: faster for a while (doesn't smash things like a dash)
+ * - shield: absorbs the next hit (obstacle, fall or dash ram)
+ * - ink: splatters everyone ahead (blinds the player, makes AI fumble)
+ * - spring: a big jump that clears whatever is ahead
+ * - rocket: fly above everything for 10 s, then drop back down and run on
+ */
+export const ITEM = {
+  max: 3, // items the player can hold at once
+  roll: 0.6, // item slot spins this long before it can be used
+  boxY: 1.15, // box centre height
+  boostMul: 1.35,
+  boostTime: 2.2,
+  inkTime: 3.2,
+  springVelocity: 19, // apex ≈ 4.75 m, airtime ≈ 1 s
+  flyTime: 10, // rocket: seconds in the air above every obstacle
+  flyHeight: 4.6, // clears bars, walls and swinging pendulums
+  rocketMul: 1.15,
+};

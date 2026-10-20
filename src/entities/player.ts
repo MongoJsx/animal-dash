@@ -1,7 +1,8 @@
 // Player simulation: auto-run, lane changes, jump/slide, collisions that cost
 // speed instead of lives, and the Focus streak. Pure logic, no rendering.
-import { BODY, DASH, FOCUS, PENALTY, PLAYER, START_BOOST, baseSpeed, laneX, runOut } from '../config.ts';
+import { BODY, DASH, FOCUS, ITEM, PENALTY, PLAYER, RACE_LENGTH, START_BOOST, baseSpeed, laneX, runOut } from '../config.ts';
 import type { Action } from '../core/input.ts';
+import type { ItemKind } from '../world/items.ts';
 import {
   hitBoxes, isHazard, onFloor, trigger, type Box, type Obstacle,
 } from '../world/obstacles.ts';
@@ -24,6 +25,11 @@ export type PlayerEvent =
   | { type: 'stunned' }
   | { type: 'shoved' } // barged into the next lane
   | { type: 'barged' } // barged someone else aside
+  | { type: 'pickup'; item: ItemKind }
+  | { type: 'item'; item: ItemKind } // used it
+  | { type: 'shieldBlock' } // the shield took a hit
+  | { type: 'inked' }
+  | { type: 'rocketEnd' } // out of fuel: dropping back to the track
   | { type: 'finish' };
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
@@ -59,11 +65,25 @@ export class Player {
   focus = 0;
   finished = false;
   finishTime = 0;
+  /** Stopped short of the line because someone else won. */
+  halted = false;
   private buffer: { a: Action; t: number }[] = [];
   private nextRow = 0;
   private dirtyRows = new Set<number>();
   private nearIndex = 0;
   events: PlayerEvent[] = [];
+  /** Held items, used first-in first-out (up to ITEM.max); a new one spins in the slot for `itemRoll`. */
+  items: ItemKind[] = [];
+  itemRoll = 0;
+  itemBoostT = 0;
+  shield = false;
+  /** In the air off a spring: clears everything until landing. */
+  springing = false;
+  /** Seconds of rocket flight left. */
+  flyT = 0;
+  inkT = 0;
+  /** Item boxes this runner has taken (ids); the rest are still there for them. */
+  took = new Set<number>();
 
   get sliding() {
     return this.slideT > 0;
@@ -75,6 +95,71 @@ export class Player {
 
   get dashing() {
     return this.dashT > 0;
+  }
+
+  /** The item the button uses next. */
+  get item(): ItemKind | null {
+    return this.items[0] ?? null;
+  }
+
+  get itemsFull() {
+    return this.items.length >= ITEM.max;
+  }
+
+  get flying() {
+    return this.flyT > 0;
+  }
+
+  get itemReady() {
+    return !!this.item && this.itemRoll <= 0 && this.launched && !this.finished && !this.stunned;
+  }
+
+  /** Ran through an item box; false if the slots are full (the box stays). */
+  give(item: ItemKind) {
+    if (this.itemsFull || this.finished) return false;
+    this.items.push(item);
+    // Only an empty slot spins: an item already held stays ready to use.
+    if (this.items.length === 1) this.itemRoll = ITEM.roll;
+    this.emit({ type: 'pickup', item });
+    return true;
+  }
+
+  /** Splattered by someone behind. */
+  ink() {
+    if (this.finished) return;
+    this.inkT = ITEM.inkTime;
+    this.emit({ type: 'inked' });
+  }
+
+  private useItem() {
+    const item = this.items.shift()!;
+    switch (item) {
+      case 'boost':
+        this.itemBoostT = ITEM.boostTime;
+        this.speedMul = 1;
+        break;
+      case 'shield':
+        this.shield = true;
+        break;
+      case 'spring':
+        this.jump(ITEM.springVelocity, 'bounce');
+        this.springing = true;
+        break;
+      case 'rocket':
+        this.flyT = ITEM.flyTime;
+        this.grounded = false;
+        this.slideT = 0;
+        this.speedMul = 1;
+        break;
+      case 'ink': break; // the game splatters whoever is ahead
+    }
+    this.emit({ type: 'item', item });
+  }
+
+  private shieldBlock() {
+    this.shield = false;
+    this.invulnT = Math.max(this.invulnT, 0.4);
+    this.emit({ type: 'shieldBlock' });
   }
 
   get dashReady() {
@@ -91,6 +176,7 @@ export class Player {
   /** Rammed by a dashing runner: stopped dead for a moment and knocked aside. */
   stun(time: number, push: number) {
     if (this.dashing || this.finished) return;
+    if (this.shield) { this.shieldBlock(); return; }
     this.stunT = Math.max(this.stunT, time);
     this.speedMul = 0.45;
     this.recoverRate = 0.55 / 0.7;
@@ -238,12 +324,25 @@ export class Player {
       this.laneVelocity = 0;
       return;
     }
+    if (this.halted) {
+      // The race is over: ease to a stop (never over the line) and come down if in the air.
+      this.speed = runOut(this.speed, dt);
+      this.d = Math.min(this.d + this.speed * dt, Math.max(this.d, RACE_LENGTH - 1));
+      this.laneVelocity = 0;
+      this.vy -= PLAYER.gravity * dt;
+      this.y = Math.max(0, this.y + this.vy * dt);
+      if (this.y === 0) { this.vy = 0; this.grounded = true; }
+      return;
+    }
     for (const a of actions) this.buffer.push({ a, t });
     this.invulnT = Math.max(0, this.invulnT - dt);
     this.fallT = Math.max(0, this.fallT - dt);
     this.stunT = Math.max(0, this.stunT - dt);
     this.bumpT = Math.max(0, this.bumpT - dt);
     this.boost = Math.max(0, this.boost - dt * 0.2);
+    this.itemRoll = Math.max(0, this.itemRoll - dt);
+    this.itemBoostT = Math.max(0, this.itemBoostT - dt);
+    this.inkT = Math.max(0, this.inkT - dt);
     if (this.dashT > 0) {
       this.dashT = Math.max(0, this.dashT - dt);
       if (this.dashT === 0) this.invulnT = Math.max(this.invulnT, 0.3);
@@ -256,7 +355,13 @@ export class Player {
         if (this.dashReady) this.startDash();
         return false;
       }
+      if (a === 'item') {
+        if (this.itemReady) this.useItem();
+        return false;
+      }
       if (this.stunned || this.finished) return true;
+      // On a rocket: steer only, no jumping or sliding in the air.
+      if (this.flying && (a === 'jump' || a === 'slide')) return false;
       switch (a) {
         case 'left': this.changeLane(-1); return false;
         case 'right': this.changeLane(1); return false;
@@ -295,14 +400,27 @@ export class Player {
       ? runOut(this.speed, dt)
       : this.stunT > 0 ? 0
       : this.dashing ? baseSpeed(this.d) * focusMul * DASH.mul
-      : baseSpeed(this.d) * focusMul * this.speedMul * floorMul * (1 + this.boost);
+      : baseSpeed(this.d) * focusMul * this.speedMul * floorMul * (1 + this.boost) *
+        (this.itemBoostT > 0 ? ITEM.boostMul : 1) * (this.flying ? ITEM.rocketMul : 1);
     const before = this.d;
     this.d += this.speed * dt;
     if (!this.dashing && !this.finished) this.addDash((this.d - before) * DASH.perMeter);
 
     // ── Vertical ──────────────────────────────────────────────────────
     const floor = 0;
-    this.vy -= PLAYER.gravity * dt;
+    if (this.flyT > 0) {
+      // Climb to cruising height and hold it; when the fuel runs out, drop
+      // back down (still clearing everything until the feet touch the ground).
+      this.flyT = Math.max(0, this.flyT - dt);
+      this.vy = (ITEM.flyHeight - this.y) * 3;
+      if (this.flyT === 0) {
+        this.vy = 0;
+        this.springing = true;
+        this.emit({ type: 'rocketEnd' });
+      }
+    } else {
+      this.vy -= PLAYER.gravity * dt;
+    }
     this.y += this.vy * dt;
     if (this.y <= floor) {
       const wasAir = !this.grounded;
@@ -310,6 +428,7 @@ export class Player {
       this.vy = 0;
       this.grounded = true;
       if (wasAir) {
+        this.springing = false;
         this.emit({ type: 'land' });
         if (this.buffer.some((b) => b.a === 'slide')) {
           this.buffer = this.buffer.filter((b) => b.a !== 'slide');
@@ -337,13 +456,28 @@ export class Player {
       }
       if (this.grounded && this.y < 0.05) {
         if (o.kind === 'bounce' && onFloor(o, this.x, this.d)) this.jump(PLAYER.bounceVelocity, 'bounce');
-        if (o.kind === 'gap' && onFloor(o, this.x, this.d)) this.fall(o);
+        if (o.kind === 'gap' && onFloor(o, this.x, this.d)) {
+          if (this.shield) {
+            // The shield takes the fall: hop over instead.
+            o.hit = true;
+            this.shieldBlock();
+            this.jump(PLAYER.jumpVelocity, 'jump');
+          } else this.fall(o);
+        }
       }
+      if (this.springing || this.flying) continue;
       if (this.invulnT > 0) continue;
       boxes.length = 0;
       hitBoxes(o, t, boxes);
       for (const b of boxes) {
         if (!this.overlaps(b, this.x)) continue;
+        if (this.shield) {
+          // Bounces off the bubble: the obstacle is smashed, the runner keeps going.
+          o.hit = true;
+          this.emit({ type: 'smash', obstacle: o });
+          this.shieldBlock();
+          break;
+        }
         // Moving sideways into something we would have missed = side hit.
         if (this.laneT < 1 && !this.overlaps(b, laneX(this.laneFrom))) this.sideHit(o);
         else this.stumble(o);
@@ -448,10 +582,22 @@ export class Player {
     }
   }
 
+  /** Someone else crossed the line first: stop racing where you are. */
+  halt() {
+    if (this.finished || this.halted) return;
+    this.halted = true;
+    this.flyT = 0;
+    this.dashT = 0;
+    this.itemBoostT = 0;
+    this.slideT = 0;
+  }
+
   finish(t: number) {
-    if (this.finished) return;
+    if (this.finished || this.halted) return;
     this.finished = true;
     this.finishTime = t;
+    // Over the line on a rocket: come down to run it out.
+    if (this.flyT > 0) { this.flyT = 0; this.springing = true; }
     this.emit({ type: 'finish' });
   }
 }

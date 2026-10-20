@@ -3,6 +3,7 @@
 import { BIOME_LENGTH, FINISH_CLEAR, RACE_LENGTH, START_CLEAR, baseSpeed } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 import { biomeAt, pickBiomes, type BiomeId, type MapId } from './biomes.ts';
+import { placeItems, type ItemBox } from './items.ts';
 import type { Kind, Obstacle } from './obstacles.ts';
 
 type Lane = -1 | 0 | 1;
@@ -152,6 +153,7 @@ export interface Track {
   biomes: BiomeId[];
   obstacles: Obstacle[]; // sorted by d
   rows: { d0: number; d1: number }[]; // span of each pattern row
+  items: ItemBox[]; // sorted by d
 }
 
 export function buildTrack(seed: number, map: MapId = 'fable'): Track {
@@ -213,5 +215,5 @@ export function buildTrack(seed: number, map: MapId = 'fable'): Track {
   }
 
   obstacles.sort((a, b) => a.d - b.d);
-  return { seed, map, biomes, obstacles, rows };
+  return { seed, map, biomes, obstacles, rows, items: placeItems(seed, rows) };
 }

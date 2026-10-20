@@ -39,5 +39,10 @@
       "armSpread": 16,
       "armSwing": 0.8
     }
+  },
+  {
+    "id": "hippo_runner",
+    "name": "ฮิปโปซิ่ง",
+    "model": "/assets/characters/hippo_runner.glb"
   }
 ]

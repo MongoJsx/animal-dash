@@ -1,6 +1,6 @@
 // Swipe + keyboard input, turned into discrete actions the player consumes.
-// 'dash' fires the dash when the meter is full.
-export type Action = 'left' | 'right' | 'jump' | 'slide' | 'dash';
+// 'dash' fires the dash when the meter is full; 'item' uses the held item.
+export type Action = 'left' | 'right' | 'jump' | 'slide' | 'dash' | 'item';
 
 const KEYS: Record<string, Action> = {
   ArrowLeft: 'left', KeyA: 'left',
@@ -8,6 +8,7 @@ const KEYS: Record<string, Action> = {
   ArrowUp: 'jump', KeyW: 'jump', Space: 'jump',
   ArrowDown: 'slide', KeyS: 'slide',
   ShiftLeft: 'dash', ShiftRight: 'dash', KeyE: 'dash', Enter: 'dash',
+  KeyQ: 'item', KeyF: 'item',
 };
 
 const SWIPE_MIN = 24; // px
@@ -48,7 +49,7 @@ export class Input {
     target.addEventListener('pointercancel', end);
   }
 
-  /** On-screen buttons (dash). */
+  /** On-screen buttons (dash, item). */
   press(a: Action) {
     this.push(a);
   }

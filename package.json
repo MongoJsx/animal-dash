@@ -14,7 +14,8 @@
     "assets:rig": "node tools/autorig.mjs",
     "assets:props": "node tools/build-props.mjs",
     "assets:catalog": "sh tools/catalog-assets.sh",
-    "check:contacts": "tsx tools/check-contacts.ts"
+    "check:contacts": "tsx tools/check-contacts.ts",
+    "check:items": "tsx tools/check-items.ts"
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.5.1",

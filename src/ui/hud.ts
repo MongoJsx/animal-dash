@@ -2,6 +2,7 @@
 import { FOCUS, RACE_LENGTH } from '../config.ts';
 import type { CharacterDef } from '../render/character.ts';
 import { MAPS, MAP_IDS, type MapId } from '../world/biomes.ts';
+import { ITEM_ICON, type ItemKind } from '../world/items.ts';
 
 export interface Racer {
   name: string;
@@ -53,6 +54,15 @@ export class Hud {
   private dashState = '';
   /** Set by the game: the dash button was pressed. */
   onDash: () => void = () => {};
+  private itemBtn: HTMLButtonElement;
+  private itemIcon: HTMLElement;
+  private itemCount: HTMLElement;
+  private itemKey = '';
+  /** Set by the game: the item button was pressed. */
+  onItem: () => void = () => {};
+  private inkBox: HTMLElement;
+  private flight: HTMLElement;
+  private flightShown = 0;
   private menu: HTMLElement;
   private results: HTMLElement;
   private toastTimer = 0;
@@ -77,6 +87,14 @@ export class Hud {
     this.dashBtn = el('button', 'dash-btn', this.race, `<span class="dash-label">DASH</span><small>${desktop ? 'Shift' : ''}</small>`);
     for (const ev of ['pointerdown', 'pointerup'] as const) this.dashBtn.addEventListener(ev, (e) => e.stopPropagation());
     this.dashBtn.addEventListener('pointerdown', () => this.onDash());
+    this.itemBtn = el('button', 'item-btn empty', this.race, `<span class="item-icon"></span><small>${desktop ? 'Q' : ''}</small>`);
+    this.itemIcon = this.itemBtn.querySelector<HTMLElement>('.item-icon')!;
+    this.itemCount = el('span', 'item-count', this.itemBtn);
+    for (const ev of ['pointerdown', 'pointerup'] as const) this.itemBtn.addEventListener(ev, (e) => e.stopPropagation());
+    this.itemBtn.addEventListener('pointerdown', () => this.onItem());
+    // Splats over the view of the track ahead.
+    this.inkBox = el('div', 'ink', this.root, '<i></i><i></i><i></i><i></i><i></i><i></i>');
+    this.flight = el('div', 'flight', this.race);
     this.zone = el('div', 'zone-title', this.root);
     this.menu = el('div', 'menu hidden', this.root);
     this.results = el('div', 'results hidden', this.root);
@@ -88,9 +106,10 @@ export class Hud {
     this.results.classList.add('hidden');
     this.menu.classList.remove('hidden');
     this.root.classList.remove('zone', 'dashing');
+    this.inkBox.classList.remove('show');
     const controls = desktop
-      ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช']]
-      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['ปุ่ม DASH', 'แดช']];
+      ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช'], ['Q', 'ใช้ไอเท็ม']]
+      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['ปุ่ม DASH', 'แดช'], ['ปุ่มไอเท็ม', 'ใช้ไอเท็ม']];
     this.menu.innerHTML = `
       <div class="menu-top">
         <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">ANIMAL DASH</span></div>
@@ -117,6 +136,7 @@ export class Hud {
             <li><b>ออกตัว</b> — ทุกคนออกพร้อมกันหลังเสียง “ปัง!” ไม่ต้องกดอะไร</li>
             <li><b>ชนของ</b> — ช้าลง แต่เติมเกจแดช</li>
             <li><b>หลบต่อเนื่อง</b> — สะสม FOCUS วิ่งเร็วขึ้นเรื่อย ๆ</li>
+            <li><b>กล่อง ?</b> — วิ่งชนเพื่อสุ่มไอเท็ม: ⚡ บูสต์ · 🛡️ โล่กันชน 1 ครั้ง · 🦑 หมึกใส่คนข้างหน้า · 🦘 สปริงกระโดดข้าม · 🚀 จรวดบินข้ามทุกอย่าง 10 วิ</li>
           </ul>
           <button class="help-close">เข้าใจแล้ว!</button>
         </div>
@@ -184,6 +204,45 @@ export class Hud {
       return d;
     });
     this.setFocus(0);
+    this.setItem(null, false);
+    this.setFlight(0);
+    this.inkBox.classList.remove('show');
+  }
+
+  /** Item slot: `rolling` spins through the icons before it lands on `item`. */
+  setItem(item: ItemKind | null, rolling: boolean, t = 0, count = item ? 1 : 0) {
+    const icons = Object.values(ITEM_ICON);
+    const icon = !item ? '' : rolling ? icons[Math.floor(t * 14) % icons.length] : ITEM_ICON[item];
+    const key = `${icon}|${rolling}|${count}`;
+    if (key === this.itemKey) return;
+    this.itemKey = key;
+    this.itemIcon.textContent = icon;
+    this.itemCount.textContent = count > 1 ? `×${count}` : '';
+    this.itemBtn.className = `item-btn ${!item ? 'empty' : rolling ? 'rolling' : 'ready'}`;
+  }
+
+  /** Rocket fuel left (s); 0 hides the gauge. */
+  setFlight(left: number) {
+    const shown = left > 0 ? Math.ceil(left) : 0;
+    if (shown === this.flightShown) return;
+    this.flightShown = shown;
+    this.flight.classList.toggle('show', shown > 0);
+    if (shown) this.flight.textContent = `🚀 ${shown}`;
+  }
+
+  /** Ink over the screen for `time` seconds. */
+  ink(time: number) {
+    const box = this.inkBox;
+    box.style.setProperty('--t', `${time}s`);
+    // Fresh splats in new spots every time.
+    box.querySelectorAll<HTMLElement>('i').forEach((s) => {
+      s.style.left = `${10 + Math.random() * 65}%`;
+      s.style.top = `${18 + Math.random() * 45}%`;
+      s.style.setProperty('--s', `${0.7 + Math.random() * 0.8}`);
+    });
+    box.classList.remove('show');
+    void box.offsetWidth;
+    box.classList.add('show');
   }
 
   countdown(text: string, sub = '') {
@@ -247,10 +306,10 @@ export class Hud {
     this.root.classList.toggle('zone', level >= FOCUS.max);
   }
 
-  flash(text: string, kind: 'bad' | 'good' = 'bad') {
+  flash(text: string, kind: 'bad' | 'good' = 'bad', time = 0.8) {
     this.toast.textContent = text;
     this.toast.className = `toast show ${kind}`;
-    this.toastTimer = 0.8;
+    this.toastTimer = time;
   }
 
   hit() {
@@ -271,6 +330,7 @@ export class Hud {
     const gap = (r: Racer, i: number) => i === 0 || !r.finished ? '' : `+${(r.finishTime - best).toFixed(2)}`;
     this.race.classList.add('hidden');
     this.root.classList.remove('zone', 'dashing');
+    this.inkBox.classList.remove('show');
     this.results.classList.remove('hidden');
     this.results.className = `results p${Math.min(place, 4)}`;
     this.results.innerHTML = `

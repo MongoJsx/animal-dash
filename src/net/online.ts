@@ -20,7 +20,10 @@ export type NetMsg =
   | { t: 'again' }
   | { t: 's'; d: number; x: number; y: number; v: number }
   | { t: 'm'; m: NetMove }
-  | { t: 'fin'; time: number };
+  | { t: 'fin'; time: number }
+  | { t: 'ink' } // you were ahead of me when I used ink
+  | { t: 'sh'; on: boolean } // my shield went up / popped
+  | { t: 'rk'; on: boolean }; // my rocket lit / ran out
 
 type Wire = NetMsg | { t: 'hello' } | { t: 'ping' } | { t: 'bye' };
 
@@ -69,6 +72,23 @@ export class Online {
     let code = '';
     for (let i = 0; i < 5; i++) code += CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0];
     return new Online('host', code, 0);
+  }
+
+  /**
+   * A room typed in by hand: the 5-character code (any case, spaces ignored)
+   * or a whole invite link pasted in. Null if it can't be a room.
+   */
+  static parseCode(text: string): { code: string; broker: number } | null {
+    let raw = text.trim();
+    let broker = 0;
+    const link = raw.match(/[?&]room=([^&#\s]+)/i);
+    if (link) {
+      broker = Number(raw.match(/[?&]b=(\d+)/)?.[1]) || 0;
+      raw = link[1];
+    }
+    const code = raw.toLowerCase().replace(/[\s-]/g, '');
+    if (code.length !== 5 || [...code].some((c) => !CODE_CHARS.includes(c))) return null;
+    return { code, broker };
   }
 
   static join(code: string, broker: number) {

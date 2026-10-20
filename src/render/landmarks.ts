@@ -1,11 +1,14 @@
 // Set pieces at fixed distances: the start (painted boxes, starting blocks,
-// grandstands, gantry), the gates between zones and the finish. Each country
+// country scenery, gantry), the gates between zones and the finish. Each country
 // dresses them in its own architecture.
 import * as THREE from 'three';
 import { START_SLOTS } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 import type { CountryId, Palette } from '../world/biomes.ts';
-import { GOLD, ball, cone, cylinder, rod, torii, type Batch } from './kit.ts';
+import {
+  GOLD, ball, bamboo, chedi, cherryTree, coconutPalm, cone, cylinder, pagoda, prang, redLantern, rod, roundTree,
+  stoneLantern, streetLamp, thaiFlag, thaiHall, torii, type Batch,
+} from './kit.ts';
 import { TRACK_HALF } from './scenery.ts';
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
@@ -58,24 +61,84 @@ function laneNumber(n: number, x: number, z: number) {
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 
-/** Grandstand with a cheering crowd, beside the track at |x| = from. */
-function grandstand(b: Batch, rng: Rng, side: number, z: number, len: number, from: number, flags: number[]) {
+/** Thai spirit house (san phra phum) on its post, hung with marigold garlands. */
+function spiritHouse(s: Batch['lit'], x: number, z: number) {
+  s.box(0xf4efe6, x, 0.7, z, 0.22, 1.4, 0.22);
+  s.box(0xe9dfc9, x, 1.45, z, 1.0, 0.1, 1.0);
+  s.box(0xfbf6ec, x, 1.85, z, 0.6, 0.7, 0.6);
+  s.box(GOLD, x, 1.85, z, 0.62, 0.12, 0.62);
+  s.prism(0xd62828, x, 2.2, z, 0.95, 0.55, 0.85);
+  s.prism(0xe8641a, x, 2.55, z, 0.7, 0.45, 0.6);
+  cone(s, GOLD, x, 2.95, z, 0.06, 0.7, 6);
+  for (const [dx, dz] of [[-0.42, -0.42], [0.42, -0.42], [-0.42, 0.42], [0.42, 0.42]]) ball(s, 0xffa21f, x + dx, 1.55, z + dz, 0.07);
+  ball(s, 0xd62828, x, 1.56, z - 0.42, 0.06);
+}
+
+/**
+ * The country's own scenery beside the start and finish straights (in place
+ * of grandstands): a temple, a pagoda, sakura, a storybook village. `from` is
+ * |x| of the inner edge, `len` the stretch along z centred on `z`; `open` when
+ * the zone leaves room for big buildings (not a pavement in front of shops).
+ */
+function roadside(b: Batch, rng: Rng, country: CountryId | null, side: number, z: number, len: number, from: number, open: boolean) {
   const s = b.lit;
-  const rows = 4;
-  for (let r = 0; r < rows; r++) {
-    const x = side * (from + 0.9 + r * 1.1);
-    s.box(r % 2 ? 0xd9d9d9 : 0xc4c4c4, x, 0.35 + r * 0.55, z, 1.1, 0.7 + r * 1.1, len);
-    for (let i = 0; i < len / 0.7 - 1; i++) {
-      if (rng.chance(0.15)) continue;
-      const pz = z - len / 2 + 0.5 + i * 0.7 + rng.range(-0.1, 0.1);
-      const py = 0.7 + r * 1.1;
-      s.box(rng.pick([0xe63946, 0x3a86ff, 0xffbe0b, 0x06d6a0, 0xffffff, 0x8338ec, 0xfb5607]), x, py + 0.35, pz, 0.38, 0.6, 0.42);
-      ball(s, rng.pick([0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524]), x, py + 0.8, pz, 0.17);
-      if (rng.chance(0.25)) s.box(rng.pick(flags), x - side * 0.05, py + 1.2, pz, 0.03, 0.35, 0.5);
+  const X = (dx: number) => side * (from + dx);
+  const z0 = z - len / 2, z1 = z + len / 2;
+  switch (country) {
+    case 'th': {
+      // Along the pavement: spirit houses hung with garlands, little gold chedis, flags.
+      for (let i = 0, pz = z0 + 1.5; pz < z1; i++, pz += 3.7) {
+        if (i % 2) chedi(s, X(0.6), pz, 3.2);
+        else spiritHouse(s, X(0.6), pz);
+      }
+      for (let i = 0, pz = z0 + 3.35; pz < z1; i++, pz += 3.7) thaiFlag(s, X(-1.3), pz, 4.6, i % 2 === 1);
+      if (open) {
+        // Room to spare (the finish out in the fields): a temple hall and white prangs.
+        thaiHall(s, X(6.5), z, 5, len * 0.55);
+        for (const pz of [z0 + 2.5, z1 - 2.5]) prang(s, X(4.2), pz, 7.5, 0xf4efe6, GOLD);
+        for (const pz of [z0 - 1.5, z1 + 1.5]) coconutPalm(s, rng, X(rng.range(3, 5)), pz, rng.range(7, 9), side * 0.25);
+      }
+      break;
+    }
+    case 'cn': {
+      // Red pagoda behind a row of lanterns on posts, bamboo either side.
+      pagoda(b, X(6), z, 3, 4, 0xb22222, 0x2f5d50, GOLD);
+      for (let pz = z0 + 1; pz < z1; pz += 3.6) {
+        cylinder(s, 0x6d2a1a, X(0.6), 0, pz, 0.09, 3.2, 6);
+        rod(s, 0x6d2a1a, X(0.6), 3.1, pz, X(0.1), 3.1, pz, 0.04);
+        redLantern(b, X(0.1), 2.6, pz, 0.32);
+      }
+      for (const pz of [z0 + 1.5, z1 - 1.5]) {
+        for (let k = 0; k < 6; k++) bamboo(s, rng, X(2.5 + rng.range(0, 2)), pz + rng.range(-1.5, 1.5), rng.range(6, 9), rng.range(-0.15, 0.15));
+      }
+      break;
+    }
+    case 'jp': {
+      // Sakura avenue: blossom trees, stone lanterns and a low red fence.
+      for (let pz = z0 + 1.5; pz < z1; pz += 5) cherryTree(s, rng, X(3.2 + rng.range(-0.4, 0.6)), pz, rng.range(5.5, 7), -side * 1.2);
+      for (let pz = z0 + 4; pz < z1; pz += 5) stoneLantern(b, X(0.9), pz, 0.9);
+      s.box(0xe8461e, X(0.3), 0.55, z, 0.1, 0.1, len);
+      s.box(0xe8461e, X(0.3), 0.25, z, 0.1, 0.1, len);
+      for (let pz = z0; pz <= z1; pz += 1.6) s.box(0x1d1d1d, X(0.3), 0.35, pz, 0.14, 0.7, 0.14);
+      break;
+    }
+    default: {
+      // Storybook village: timbered cottages with lit windows, round trees, lamps.
+      for (let pz = z0 + 3; pz < z1 - 1; pz += 7.5) {
+        const cx = X(3.6 + rng.range(0, 1)), w = rng.range(3.2, 4), d = rng.range(4, 5);
+        s.box(0xf3e3c3, cx, 1.4, pz, w, 2.8, d);
+        for (const e of [-1, 1]) s.box(0x6b4a2b, cx, 1.4, pz + e * (d / 2 - 0.1), w + 0.04, 2.8, 0.18);
+        s.box(0x6b4a2b, cx, 2.8, pz, w + 0.04, 0.16, d + 0.04);
+        s.prism(rng.pick([0xc0392b, 0x2f5fa8, 0x8e5a3c]), cx, 2.8, pz, w + 0.7, 2.2, d + 0.5);
+        s.box(0x9a8f86, cx + side * 0.6, 4.4, pz + d * 0.25, 0.5, 1.4, 0.5);
+        const face = cx - side * (w / 2 + 0.03);
+        s.box(0x7a4a24, face, 0.9, pz, 0.06, 1.8, 0.9);
+        for (const e of [-1, 1]) b.glow.box(0xffd27a, face, 1.7, pz + e * (d * 0.28), 0.05, 0.7, 0.7);
+      }
+      for (let pz = z0 + 6.75; pz < z1; pz += 7.5) roundTree(s, rng, X(4 + rng.range(0, 1.5)), pz, rng.range(4.5, 6), [0x5aa05a, 0x3f8f4f, 0x7cc06a]);
+      for (let pz = z0 + 2; pz < z1; pz += 7) streetLamp(b, X(0.5), pz, side, 3.4, 0xffd27a, 0x2f3a3f);
     }
   }
-  s.box(0x6c757d, side * (from + 0.9 + rows * 1.1 + 0.2), 2.6, z, 0.3, 5.2, len);
-  s.box(flags[0], side * (from + 2.6), 5.5, z, 4.6, 0.12, len + 0.4);
 }
 
 /** Arch over the track in the country's style; returns the y of its name board. */
@@ -134,7 +197,7 @@ const FLAG_COLORS: Record<CountryId, number[]> = {
   jp: [0xffffff, 0xbc002d],
 };
 
-/** Start straight: painted boxes, blocks, numbers, stands and the gantry. */
+/** Start straight: painted boxes, blocks, numbers, country scenery and the gantry. */
 export function startArea(b: Batch, country: CountryId | null, seed: number): THREE.Mesh[] {
   const s = b.lit;
   const rng = new Rng(seed ^ 0x77);
@@ -152,10 +215,10 @@ export function startArea(b: Batch, country: CountryId | null, seed: number): TH
     extras.push(laneNumber(i + 1, x, 2.4));
   });
   const flags = country ? FLAG_COLORS[country] : [0xe63946, 0xffbe0b, 0x3a86ff];
-  for (const side of [-1, 1]) grandstand(b, rng, side, 4, 22, TRACK_HALF + 2.2, flags);
+  for (const side of [-1, 1]) roadside(b, rng, country, side, 4, 22, TRACK_HALF + 2.2, false);
   const y = countryArch(b, country, 1.2, 0x264653, 0xe9c46a);
   extras.push(banner('START · เริ่ม', 0, y, -0.6, TRACK_HALF * 2 + 0.6, 0.85, '#d62828', '#fff', '#ffd23f'));
-  // Flag poles in the country's colours behind the stands.
+  // Flag poles in the country's colours behind the scenery.
   for (let i = 0; i < 6; i++) {
     for (const side of [-1, 1]) {
       const x = side * (TRACK_HALF + 8), z = 12 - i * 4;
@@ -184,7 +247,7 @@ export function finishArea(b: Batch, country: CountryId | null, d: number, seed:
   }
   const rng = new Rng(seed ^ 0x99);
   const flags = country ? FLAG_COLORS[country] : [0xe63946, 0xffbe0b, 0x3a86ff];
-  for (const side of [-1, 1]) grandstand(b, rng, side, z - 8, 24, TRACK_HALF + 2.2, flags);
+  for (const side of [-1, 1]) roadside(b, rng, country, side, z - 8, 24, TRACK_HALF + 2.2, true);
   // Bunting over the line.
   for (const zz of [z + 6, z - 6]) {
     for (let i = 0; i < 10; i++) {
