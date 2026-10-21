@@ -243,6 +243,10 @@ const BACKDROP_HORIZON_Y = 30; // the picture's sea line this far above the far 
 // of the picture's height) and fades into the dome.
 const BACKDROP_MELT = 0.24;
 const BACKDROP_RISE = 0.5;
+// The picture slides round as you run (one copy = 1/copies of the horizon) and
+// drifts a little on its own, so the far scenery never stands still.
+const BACKDROP_PAN = 3 / 2000; // copies per metre run
+const BACKDROP_DRIFT = 0.01; // copies per second
 
 const BACKDROP_VS = /* glsl */ `
 uniform vec4 uvTransform; // repeat.x, offset.x, picture span (1 + rise)
@@ -307,6 +311,8 @@ export class Sky {
   private backdropGround: THREE.Color | null = null;
   private life: SkyLife;
   private tint = new THREE.Color(1, 1, 1);
+  private backdropFocus = 0;
+  private time = 0;
 
   constructor(country: CountryId | null, seed: number) {
     this.dome = new THREE.Mesh(
@@ -329,9 +335,10 @@ export class Sky {
     const b = BACKDROPS[country ?? 'fable'];
     if (b) {
       // The picture has its own mountains: it replaces the drawn skyline. It
-      // stays put: the clouds and birds in front of it are what move.
+      // pans as you run, with clouds and birds moving in front of it.
       const { mesh, top } = backdropMesh(b);
       this.backdrop = mesh;
+      this.backdropFocus = mesh.material.uniforms.uvTransform.value.y;
       seam = top;
       this.backdropSky = new THREE.Color(b.sky);
       this.backdropGround = new THREE.Color(b.ground);
@@ -349,8 +356,12 @@ export class Sky {
     this.root.add(this.life.root);
   }
 
-  /** @param yaw the track's heading where the runner is (see TrackPath.frame) */
-  update(cam: THREE.Vector3, look: Look, groundY: number, yaw: number, dt: number) {
+  /**
+   * @param yaw the track's heading where the runner is (see TrackPath.frame)
+   * @param d how far the runner is down the track
+   */
+  update(cam: THREE.Vector3, look: Look, groundY: number, yaw: number, dt: number, d: number) {
+    this.time += dt;
     this.dome.position.copy(cam);
     this.ring.position.set(cam.x, groundY - 2, cam.z);
     this.floor.position.set(cam.x, groundY, cam.z);
@@ -366,6 +377,7 @@ export class Sky {
     this.tint.copy(look.hemiSky).lerp(_white, 0.3).multiplyScalar(Math.min(1, look.sunI / 2.4) ** 1.6);
     if (this.backdrop) {
       this.backdrop.position.set(cam.x, groundY, cam.z);
+      this.backdrop.material.uniforms.uvTransform.value.y = this.backdropFocus + d * BACKDROP_PAN + this.time * BACKDROP_DRIFT;
       // The picture is a sunny day: dim and tint it to the zone's light.
       this.backdrop.material.uniforms.tint.value.copy(this.tint);
       // Above the picture the dome carries on in its sky blue, deepening overhead.

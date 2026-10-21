@@ -76,7 +76,7 @@ function backdropTex() {
       for (let col = 0; col < 6; col++) {
         const x = col * 220 + (row % 2 ? 110 : 0);
         g.font = row % 2 ? `700 20px ${FONT}` : `800 28px ${FONT}`;
-        g.fillText(row % 2 ? 'ANIMAL DASH' : '★ วิ่งสุดใจ ★', x, 44 + row * 60);
+        g.fillText(row % 2 ? 'วิ่งซิ่งข้ามโลก' : '★ วิ่งสุดใจ ★', x, 44 + row * 60);
       }
     }
     g.restore();
