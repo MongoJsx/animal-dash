@@ -642,6 +642,7 @@ export class Game {
     this.standings = order.map((i) => ({ view: views[i], isPlayer: racers[i].isPlayer }));
     const podium = new Podium(this.player.d + 9);
     this.podium = podium;
+    this.juice.ceremonyShow();
     this.scene.add(podium.root);
     this.cheer = [];
     this.standings.forEach((s, place) => {
@@ -1101,7 +1102,7 @@ export class Game {
     {
       const racing = this.state === 'race' && !this.podium;
       const lines = !racing ? 0 : p.dashing ? 1 : p.flying || p.itemBoostT > 0 ? 0.8 : p.focus >= 10 ? 0.3 : 0;
-      this.juice.update(dt, p.d, this.track?.items ?? null, p.took, this.camera, this.headAt(p.x, p.y + 0.15, p.d), lines);
+      this.juice.update(dt, p, this.track?.items ?? null, p.took, this.camera, this.headAt(p.x, p.y + 0.15, p.d), lines);
     }
     if (this.env) {
       this.env.update(p.d, dt, this.camera.position);

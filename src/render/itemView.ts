@@ -31,6 +31,48 @@ function questionTexture() {
   return tex;
 }
 
+/** Loot glow behind a box: a soft gold halo with light rays (turned per box). */
+function haloTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.translate(128, 128);
+  const glow = g.createRadialGradient(0, 0, 0, 0, 0, 128);
+  glow.addColorStop(0, 'rgba(255,240,170,0.95)');
+  glow.addColorStop(0.3, 'rgba(255,200,60,0.45)');
+  glow.addColorStop(1, 'rgba(255,170,0,0)');
+  g.fillStyle = glow;
+  g.fillRect(-128, -128, 256, 256);
+  const rays = g.createRadialGradient(0, 0, 10, 0, 0, 128);
+  rays.addColorStop(0, 'rgba(255,250,220,0.8)');
+  rays.addColorStop(1, 'rgba(255,220,120,0)');
+  g.fillStyle = rays;
+  for (let i = 0; i < 12; i++) {
+    g.rotate((Math.PI * 2) / 12);
+    g.beginPath();
+    g.moveTo(0, 0);
+    g.lineTo(-9, 128);
+    g.lineTo(9, 128);
+    g.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Soft round shadow under a hovering box. */
+function blobTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(0,0,0,0.45)');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
@@ -40,39 +82,67 @@ const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 export class ItemBoxes {
   readonly mesh: THREE.InstancedMesh;
+  /** Halo behind each box and its shadow on the ground (children of `mesh`). */
+  private halo: THREE.InstancedMesh;
+  private shadow: THREE.InstancedMesh;
   private boxes: ItemBox[];
 
   constructor(boxes: ItemBox[]) {
     this.boxes = boxes;
-    const mat = new THREE.MeshLambertMaterial({ map: questionTexture(), emissive: 0x553300, transparent: true, opacity: 0.92 });
-    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(SIZE, SIZE, SIZE), mat, Math.max(1, boxes.length));
+    const n = Math.max(1, boxes.length);
+    const mat = new THREE.MeshLambertMaterial({ map: questionTexture(), emissive: 0x553300 });
+    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(SIZE, SIZE, SIZE), mat, n);
     this.mesh.count = boxes.length;
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = true;
+    // The halo faces back down the track, where the runners (and camera) come from.
+    this.halo = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ map: haloTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }), n);
+    this.shadow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: blobTexture(), transparent: true, depthWrite: false }), n);
+    for (const m of [this.halo, this.shadow]) {
+      m.count = boxes.length;
+      m.frustumCulled = false;
+      this.mesh.add(m);
+    }
   }
 
   /** `taken`: boxes the local player already took (hidden for them). */
   update(t: number, viewD: number, taken: Set<number>) {
     const pulse = 0.5 + 0.5 * Math.sin(t * 6);
-    (this.mesh.material as THREE.MeshLambertMaterial).emissive.setRGB(0.25 + pulse * 0.2, 0.15 + pulse * 0.1, 0);
+    (this.mesh.material as THREE.MeshLambertMaterial).emissive.setRGB(0.32 + pulse * 0.25, 0.2 + pulse * 0.14, 0.02);
     this.boxes.forEach((b, i) => {
       if (taken.has(b.id) || b.d < viewD - VIEW_BEHIND || b.d > viewD + VIEW_AHEAD) {
         this.mesh.setMatrixAt(i, HIDDEN);
+        this.halo.setMatrixAt(i, HIDDEN);
+        this.shadow.setMatrixAt(i, HIDDEN);
         return;
       }
-      _q.setFromEuler(_e.set(0.35, t * 1.8 + b.id, 0.2));
-      _p.set(laneX(b.lane), ITEM.boxY + Math.sin(t * 3 + b.id) * 0.12, -b.d);
-      this.mesh.setMatrixAt(i, _m.compose(_p, _q, _s.setScalar(1)));
+      const bob = Math.sin(t * 3 + b.id) * 0.14;
+      // Spins on a tilted axis and breathes a little.
+      _q.setFromEuler(_e.set(0.45 + Math.sin(t * 1.3 + b.id) * 0.15, t * 2.2 + b.id, 0.3));
+      _p.set(laneX(b.lane), ITEM.boxY + bob, -b.d);
+      this.mesh.setMatrixAt(i, _m.compose(_p, _q, _s.setScalar(1 + Math.sin(t * 5 + b.id * 1.7) * 0.05)));
+      _q.setFromEuler(_e.set(0, 0, t * 0.6 + b.id));
+      _p.z -= 0.55;
+      this.halo.setMatrixAt(i, _m.compose(_p, _q, _s.setScalar(2.3 + pulse * 0.25)));
+      _q.identity();
+      _p.set(laneX(b.lane), 0.03, -b.d);
+      this.shadow.setMatrixAt(i, _m.compose(_p, _q, _s.setScalar(1.1 - bob * 0.8)));
     });
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.halo.instanceMatrix.needsUpdate = true;
+    this.shadow.instanceMatrix.needsUpdate = true;
   }
 
   dispose() {
-    this.mesh.geometry.dispose();
-    const mat = this.mesh.material as THREE.MeshLambertMaterial;
-    mat.map?.dispose();
-    mat.dispose();
-    this.mesh.dispose();
+    for (const m of [this.mesh, this.halo, this.shadow]) {
+      m.geometry.dispose();
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.map?.dispose();
+      mat.dispose();
+      m.dispose();
+    }
   }
 }
 

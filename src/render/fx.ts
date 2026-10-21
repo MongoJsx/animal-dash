@@ -121,6 +121,8 @@ void main() {
   float cell = iMisc.x;
   vUv = ( uv + vec2( mod( cell, ${COLS}.0 ), ${ROWS - 1}.0 - floor( cell / ${COLS}.0 ) ) ) / vec2( ${COLS}.0, ${ROWS}.0 );
   vColor = vec4( iColor.rgb, iColor.a * smoothstep( 0.0, 0.06, k ) * ( 1.0 - smoothstep( 0.55, 1.0, k ) ) );
+  // Dust and stars melt away before they get near the lens.
+  if ( cell < 1.5 ) vColor.a *= smoothstep( 3.0, 6.5, - mv.z );
   vGlow = iMisc.z;
 }`;
 
@@ -161,7 +163,8 @@ export class Sprites {
   private hi = -1;
   time = 0;
 
-  constructor() {
+  /** @param map share another layer's atlas */
+  constructor(map: THREE.Texture = atlas()) {
     const g = new THREE.InstancedBufferGeometry();
     const quad = new THREE.PlaneGeometry(1, 1);
     g.index = quad.index;
@@ -175,7 +178,7 @@ export class Sprites {
     for (const [k, a] of Object.entries(this.attrs)) g.setAttribute(k, a);
     g.instanceCount = N;
     this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
-      uniforms: { time: { value: 0 }, map: { value: atlas() } },
+      uniforms: { time: { value: 0 }, map: { value: map } },
       vertexShader: VS, fragmentShader: FS,
       transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false,
     }));
