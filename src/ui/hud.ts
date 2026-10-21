@@ -69,6 +69,10 @@ export class Hud {
   private toastTimer = 0;
 
   constructor(parent: HTMLElement) {
+    // The plain buttons click; picks, arrows and start have their own sounds.
+    parent.addEventListener('click', (e) => {
+      if ((e.target as Element).closest?.('.help-btn, .help-close, .sound-btn, .online-btn, .again, .menu-btn, [data-act]')) sound.tap();
+    }, true);
     this.root = el('div', 'hud', parent);
     this.race = el('div', 'race hidden', this.root);
     const top = el('div', 'top', this.race);
@@ -152,21 +156,24 @@ export class Hud {
       name.classList.add('swap');
     };
     show(selected);
+    const pick = (b: HTMLButtonElement) => {
+      dots.forEach((x) => x.classList.toggle('on', x === b));
+      show(b.dataset.id!);
+      onPick(b.dataset.id!);
+    };
     dots.forEach((b) => {
-      b.onclick = () => {
-        dots.forEach((x) => x.classList.toggle('on', x === b));
-        show(b.dataset.id!);
-        onPick(b.dataset.id!);
-      };
+      b.onclick = () => { sound.select(); pick(b); };
     });
     const step = (dir: number) => {
+      sound.swipe();
       const i = dots.findIndex((b) => b.classList.contains('on'));
-      dots[(i + dir + dots.length) % dots.length].click();
+      pick(dots[(i + dir + dots.length) % dots.length]);
     };
     this.menu.querySelector<HTMLButtonElement>('.prev')!.onclick = () => step(-1);
     this.menu.querySelector<HTMLButtonElement>('.next')!.onclick = () => step(1);
     this.menu.querySelectorAll<HTMLButtonElement>('.map').forEach((b) => {
       b.onclick = () => {
+        sound.select();
         this.menu.querySelectorAll('.map').forEach((x) => x.classList.toggle('on', x === b));
         onMap(b.dataset.map as MapId);
       };

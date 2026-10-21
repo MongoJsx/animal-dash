@@ -25,14 +25,35 @@ Sketchfab models used in the game (CC-BY requires this attribution).
 
 ## Sounds
 
-From Pixabay (Pixabay Content License: free to use, no attribution required; credited anyway).
+Every file in `sounds/` is cut, layered and levelled from these sources.
 
-| Sound | Author | Source | Used as |
+**Kenney** (kenney.nl, CC0 — public domain): Voiceover Pack (the "3, 2, 1, GO!" and "You win!" announcer), Impact Sounds (footsteps on grass, concrete, wood and snow; hits, bumps, smashes, landings, the medal clink), Interface Sounds (buttons, picks, the Focus pluck), Sci-fi Sounds (shield, rocket, slime), Digital Audio (boost, rocket landing), RPG Audio (cloth on the slide).
+
+**Freesound** (freesound.org, all CC0 — public domain):
+
+| Sound | Author | Freesound # | Used in |
 |---|---|---|---|
-| 321 Go – 8-bit video game sound (version 1) | make_more_sound | Pixabay sound effect #145007 | `sounds/countdown.mp3`: the 3-2-1-go before the gun |
-| Game Over – deep male voice clip | Universfield | Pixabay sound effect #352695 | `sounds/finish.mp3`: crossing the finish line |
-| Thud sound effect | Dragon Studio | Pixabay sound effect #405470 | `sounds/thud.mp3`: stumbling or getting knocked down |
-| Jingle Bells | jonasblakewood | Pixabay music #593974 | `sounds/menu.mp3`: menu music (looped) |
-| Menu click | freesound_community | Pixabay sound effect #89198 | `sounds/click.mp3`: pressing start |
+| Little Whoosh 2 | ch_ase | 423799 | `jump`, `whoosh` (lane change) |
+| Whoosh For Whip Zoom | BennettFilmTeacher | 486234 | `dash`, `boost`, `rocket` |
+| Cartoon jump | Bastianhallo | 462958 | `fall` (reversed into a falling whistle) |
+| boing.wav | suzenako | 537060 | `spring` |
+| Splat | JustInvoke | 147017 | `ink`, `splat` |
+| classic dizzy take slide whistle | martian | 403002 | `hit` (the dizzy wobble after a stumble) |
+| Shirt Whoosh 1 | saturdaysoundguy | 391448 | `slide` |
+| Single Gunshot 5.2 | morganpurkis | 386845 | `countdown` (the starting gun) |
+| Crowd cheer 2 | deleted_user_2104797 | 346689 | `cheer` |
+| small crowd cheering | HowardV | 264377 | `crowd-loop` |
+| morning ambience of a small mountain village | gladkiy | 276946 | `birds-loop` |
+| Item or Material Pickup Pop | el_boss | 665183 | `pickup` |
+| cartoon_wink_magic_sparkle | MLaudio | 511485 | `pickup`, `medal` |
+| Spacey 1up/Power up | GameAudio | 220173 | `ready` (dash ready) |
+| Videogame Menu BUTTON CLICK | Christopherderp | 342200 | `tap`, `confirm` |
+| Success Fanfare Trumpets | FunWithSound | 456966 | `fanfare-win` |
+| Level win | Tuudurt | 258142 | `fanfare-good` (2nd–3rd) |
+| You failed (game jingle) | Rolly-SFX | 626260 | `fanfare-lose` |
+| partypopper | Streety | 26349 | `popper` |
+| firework 1 | Andy_Gardner | 367486 | `fireworks` |
 
-The item pickup and falling-in-a-hole sounds are synthesized in code (`src/core/audio.ts`).
+**Music** — Kevin MacLeod (incompetech.com), licensed under Creative Commons: By Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/):
+- "Monkeys Spinning Monkeys" — `music-menu` (menu)
+- "Hyperfun" — `music-race` (racing)

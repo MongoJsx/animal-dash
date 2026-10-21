@@ -1,7 +1,7 @@
 // Ties simulation, rendering and UI together: menu → countdown → race → results.
 import * as THREE from 'three';
 import { DASH, ITEM, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
-import { COUNTDOWN_GO, sound } from './core/audio.ts';
+import { COUNTDOWN_GO, sound, type Surface } from './core/audio.ts';
 import { Input } from './core/input.ts';
 import { Rng } from './core/rng.ts';
 import { botActions } from './entities/bot.ts';
@@ -49,6 +49,13 @@ const airTime = (v: number) => (2 * v) / PLAYER.gravity;
 // clip starting at COUNT_AT); "set" on the 1 and the gun on its "GO".
 const COUNT_AT = 0.4;
 const GO_AT = COUNT_AT + COUNTDOWN_GO;
+// What the player's footsteps sound like in each zone.
+const SURFACE: Record<BiomeId, Surface> = {
+  village: 'grass', forest: 'grass', candy: 'grass', harbor: 'wood', snow: 'snow',
+  th_city: 'concrete', th_palace: 'concrete', th_market: 'concrete', th_fields: 'grass',
+  cn_wall: 'concrete', cn_bamboo: 'grass', cn_town: 'concrete', cn_guilin: 'grass',
+  jp_sakura: 'grass', jp_torii: 'grass', jp_tokyo: 'concrete', jp_snow: 'snow',
+};
 const MARKS_TIME = GO_AT - 1;
 const LAUNCH_AT = 0.4; // everyone leaves the blocks together, this long after the gun
 const BURST_TIME = 1.25;
@@ -258,7 +265,8 @@ export class Game {
 
   private showMenu() {
     this.state = 'menu';
-    sound.menuMusic(true);
+    sound.setMusic('menu');
+    this.quietBeds();
     this.input.enabled = false;
     this.reset(1234);
     this.setPlayerView(this.selected);
@@ -465,7 +473,8 @@ export class Game {
         this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
       }
     }
-    sound.menuMusic(false);
+    sound.setMusic(null);
+    this.focusHeard = 0;
     this.hud.startRace(this.racers());
     this.state = 'countdown';
     this.countdownT = 0;
@@ -532,7 +541,7 @@ export class Game {
       this.input.drain(); // nothing to press in the blocks
       const into = this.countdownT - COUNT_AT;
       // Joined late (or the clip only just loaded): start it part-way, so "GO" still lands on the gun.
-      if (!this.countPlayed && into >= 0) this.countPlayed = sound.play('countdown', into) || into > COUNTDOWN_GO;
+      if (!this.countPlayed && into >= 0) this.countPlayed = sound.play('countdown', { from: into }) || into > COUNTDOWN_GO;
       // 3, 2, 1 with the beeps.
       if (this.beat < 3 && into >= this.beat && this.countdownT < this.goAt) {
         this.beat = Math.min(3, Math.floor(into) + 1);
@@ -550,6 +559,8 @@ export class Game {
         if (this.startAt !== null) this.gunWall = this.startAt + this.goAt * 1000;
         this.shake = 0.12;
         this.juice.cannons(this.player.d + 3);
+        sound.gun();
+        sound.setMusic('race');
         this.hud.countdown('ปัง! ไป!', 'GO');
       }
       return;
@@ -639,6 +650,7 @@ export class Game {
       if (place < 3) podium.award(place, s.view);
     });
     podium.onMedal = (place) => {
+      sound.medal(place);
       this.standings[place].view.play('victory');
       // The runners-up settle down again; the champion keeps celebrating.
       if (place > 0) this.cheer[place] = 2.6;
@@ -663,6 +675,27 @@ export class Game {
     return 1 + times.filter((t) => t < time).length;
   }
   private menuCheer = 0;
+  /** Focus level last heard, so only a rise plays the pluck. */
+  private focusHeard = 0;
+
+  /** Crowd, countryside and rocket beds off (back at the menu). */
+  private quietBeds() {
+    sound.loop('crowd-loop', 0);
+    sound.loop('birds-loop', 0);
+    sound.loop('rocket-loop', 0);
+  }
+
+  /** The crowd swells near the start and the finish; birds in between. */
+  private beds() {
+    const d = this.player.d;
+    const near = Math.max(0, 1 - Math.min(Math.abs(d), Math.abs(RACE_LENGTH - d)) / 70);
+    const racing = this.state === 'race' || this.state === 'done';
+    const crowd = this.state === 'countdown' ? 0.5 : racing ? near * 0.55 : 0;
+    const birds = racing ? 0.3 * (1 - near) : 0;
+    if (Math.abs(crowd - this.bedLevels[0]) > 0.02 || (crowd === 0) !== (this.bedLevels[0] === 0)) sound.loop('crowd-loop', (this.bedLevels[0] = crowd));
+    if (Math.abs(birds - this.bedLevels[1]) > 0.02 || (birds === 0) !== (this.bedLevels[1] === 0)) sound.loop('birds-loop', (this.bedLevels[1] = birds));
+  }
+  private bedLevels = [0, 0];
   private viewOffset = new THREE.Vector2();
 
   private endCeremony() {
@@ -793,14 +826,18 @@ export class Game {
       case 'jump':
       case 'bounce':
         this.juice.takeoff(this.player);
+        if (e.type === 'bounce') sound.spring();
+        else sound.jump();
         v?.play('jump', e.airTime);
         this.playerLock = e.airTime;
         break;
       case 'slide':
+        sound.slide();
         v?.play('slide', PLAYER.slideTime);
         this.playerLock = PLAYER.slideTime;
         break;
       case 'land':
+        sound.land();
         if (!this.player.sliding) this.playerLock = 0;
         break;
       case 'stumble':
@@ -813,6 +850,7 @@ export class Game {
         this.hud.hit();
         break;
       case 'sidehit':
+        sound.sideHit();
         this.juice.hit(this.player, false, true);
         this.shake = 0.15;
         this.hud.flash('ชนข้าง!');
@@ -828,14 +866,17 @@ export class Game {
         this.hud.hit();
         break;
       case 'bump':
+        sound.bump(e.side);
         this.shake = Math.max(this.shake, 0.1);
         this.hud.flash(e.side ? 'เบียด!' : 'ชน!');
         break;
       case 'smash':
+        sound.smash();
         this.smashView(e.obstacle);
         if (this.player.dashing) this.shake = Math.max(this.shake, 0.12);
         break;
       case 'dash':
+        sound.dash();
         this.juice.ring(this.player, 0x9be7ff, 12, 5);
         v?.play('burst', DASH.time);
         this.playerLock = DASH.time;
@@ -844,9 +885,11 @@ export class Game {
         this.hud.setFocus(this.player.focus);
         break;
       case 'dashReady':
+        sound.dashReady();
         this.hud.flash(desktop ? 'แดชพร้อม! กด Shift' : 'แดชพร้อม! กดปุ่ม DASH', 'good');
         break;
       case 'shoved':
+        sound.bump(false);
         this.juice.hit(this.player, false, true);
         v?.play('stumble', 0.35);
         this.playerLock = 0.35;
@@ -855,6 +898,7 @@ export class Game {
         this.hud.hit();
         break;
       case 'barged':
+        sound.bump(true);
         this.shake = Math.max(this.shake, 0.1);
         this.hud.flash('เบียดออกไป!', 'good');
         break;
@@ -878,41 +922,51 @@ export class Game {
         this.usedItem = true;
         this.juice.item(p, e.item);
         if (e.item === 'boost') {
+          sound.boost();
           v?.play('burst', 0.6);
           this.playerLock = 0.6;
           this.shake = Math.max(this.shake, 0.15);
           this.hud.flash('บูสต์!', 'good');
         } else if (e.item === 'shield') {
+          sound.shield();
           this.debris.burst(p.x, p.y + 1, p.d, POP_COLORS, 10, 0.8, p.speed);
           this.hud.flash('เปิดโล่!', 'good');
         } else if (e.item === 'ink') {
+          sound.ink();
           const hits = this.splatAhead(p);
           this.hud.flash(hits ? `พ่นหมึกใส่ ${hits} คน!` : 'ไม่มีใครอยู่ข้างหน้า…', hits ? 'good' : 'bad');
         } else if (e.item === 'rocket') {
+          sound.rocket(true);
           this.shake = Math.max(this.shake, 0.3);
           this.debris.burst(p.x, 0.2, p.d, [0xffa21f, 0xffe066, 0xdddddd], 18, 0.8, 0);
           this.hud.flash(`🚀 ${ITEM_NAME.rocket}! บิน ${ITEM.flyTime} วิ`, 'good');
         } else {
+          sound.spring();
           this.debris.burst(p.x, 0.2, p.d, [0x9be564, 0xffffff, 0xffd166], 12, 0.6, p.speed * 0.5);
           this.hud.flash(`${ITEM_NAME.spring}!`, 'good');
         }
         break;
       }
       case 'rocketEnd':
+        sound.rocket(false);
         this.hud.flash('จรวดหมด! ลงจอด', 'good');
         break;
       case 'shieldBlock':
+        sound.shieldPop();
         this.juice.ring(this.player, 0x7ae0ff, 14, 3);
         this.shake = Math.max(this.shake, 0.15);
         this.debris.burst(this.player.x, this.player.y + 1, this.player.d + 0.6, POP_COLORS, 16, 0.9, this.player.speed);
         this.hud.flash('โล่กันไว้!', 'good');
         break;
       case 'inked':
+        sound.inked();
         this.hud.ink(ITEM.inkTime);
         this.hud.flash('โดนหมึก!');
         this.hud.hit();
         break;
       case 'focus':
+        if (e.level > this.focusHeard) sound.focus(e.level);
+        this.focusHeard = e.level;
         this.hud.setFocus(e.level);
         if (e.level === 10) { this.hud.flash('FOCUS MAX!', 'good'); this.juice.focusMax(this.player); }
         break;
@@ -921,12 +975,18 @@ export class Game {
         const place = 1 + this.rivals.filter((r) => r.sim.finished || (r.sim instanceof Remote && r.sim.d >= RACE_LENGTH)).length;
         // Run it out first; the pose comes once they've slowed (see render).
         this.endPose = place === 1 ? 'victory' : 'defeat';
-        sound.play('finish');
+        sound.finish(place);
+        sound.setMusic(null);
+        sound.rocket(false);
         this.juice.finishShow();
+        sound.fireworks();
         this.playerLock = 99;
         this.hud.flash(place === 1 ? 'เข้าเส้นชัยที่ 1!' : `เข้าเส้นชัยที่ ${place}`, 'good');
         break;
       }
+      case 'lane':
+        sound.lane();
+        break;
       default: break;
     }
   }
@@ -978,6 +1038,10 @@ export class Game {
       this.playerTag.update(this.podium || !p.item ? '' : rolling ?? ITEM_ICON[p.item], this.headAt(p.x, p.y, p.d), dt);
       if (p.flying) this.exhaust(p.x, p.y, p.d);
       if (!this.podium && (this.state === 'race' || this.state === 'done')) this.juice.runner(p, p.sliding, p.flying, 1, dt);
+      if (!this.podium && (this.state === 'race' || this.state === 'done') && this.track) {
+        sound.run(dt, p.speed, p.y < 0.06 && !p.flying && !p.sliding, SURFACE[biomeAt(this.track.biomes, p.d)]);
+      }
+      if (!this.podium) this.beds();
       v.update(dt, this.podium ? 0 : p.speed, this.podium ? 0 : p.laneVelocity);
     }
     this.debris.update(dt);

@@ -1,25 +1,32 @@
-// Sound: recorded clips (the 3-2-1-go count, stumble thud, finish voice and the
-// menu music) plus a couple of effects synthesized with Web Audio. Browsers
-// only allow sound after the first tap or key press, so the audio context is
-// made then, and the music starts if the menu is still up.
+// Sound: recorded effects for every action, crowd and countryside loops, and
+// music. Effects are small clips decoded into memory; the two music tracks
+// stream through media elements (minutes of decoded audio would cost tens of
+// MB on a phone). Everything runs through one Web Audio graph, so the mute
+// button covers it all. Browsers only allow sound after the first tap or key
+// press, so the context is made then. Sources and licences: assets/CREDITS.md.
 import { assetUrl } from './asset.ts';
 
-const CLIPS = {
-  countdown: '/assets/sounds/countdown.mp3',
-  finish: '/assets/sounds/finish.mp3',
-  thud: '/assets/sounds/thud.mp3',
-  menu: '/assets/sounds/menu.mp3',
-  click: '/assets/sounds/click.mp3',
-};
-export type Clip = keyof typeof CLIPS;
-/** In the countdown clip: beeps at 0, 1 and 2 s, "GO" at this time. */
-export const COUNTDOWN_GO = 3;
-// The thud's hit comes after a short silence, then rumbles for 3 s: take the hit, fade the rest.
-const THUD = { from: 0.28, length: 1 };
-// The music's sound runs this span of the file: loop it without the silent ends.
-const MENU_LOOP = [0.03, 28.92];
+const SFX = [
+  'tap', 'select', 'swipe', 'confirm',
+  'countdown', 'cheer', 'crowd-loop', 'birds-loop',
+  'step-grass', 'step-concrete', 'step-wood', 'step-snow',
+  'whoosh', 'jump', 'land', 'slide', 'hit', 'bump', 'smash', 'fall', 'dash', 'ready', 'pluck',
+  'pickup', 'boost', 'shield', 'shield-pop', 'ink', 'splat', 'spring', 'rocket', 'rocket-loop', 'rocket-end',
+  'fanfare-win', 'fanfare-good', 'fanfare-lose', 'you-win', 'medal', 'popper', 'fireworks',
+] as const;
+export type Clip = typeof SFX[number];
+export type Surface = 'grass' | 'concrete' | 'wood' | 'snow';
+type Loop = 'crowd-loop' | 'birds-loop' | 'rocket-loop';
+type Track = 'menu' | 'race';
 
-const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
+/** In the countdown clip: beeps with "3", "2", "1" at 0, 1 and 2 s, "GO!" and the gun at this time. */
+export const COUNTDOWN_GO = 3;
+// Each footstep clip holds five steps, one every half second.
+const STEP_GAP = 0.5, STEP_LEN = 0.4;
+const STRIDE = 2.1; // metres between footfalls (matches the dust in juice.ts)
+const MUSIC_VOL: Record<Track, number> = { menu: 0.55, race: 0.32 };
+
+interface PlayOpts { vol?: number; rate?: number; from?: number; length?: number; delay?: number }
 
 class Sound {
   muted = false;
@@ -27,17 +34,20 @@ class Sound {
   private master!: GainNode;
   private sfx!: GainNode;
   private music!: GainNode;
-  private noise!: AudioBuffer;
-  private wantMusic = false;
-  private musicSrc: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
   /** Clip files, fetched at once; decoded once there's a context. */
   private files = new Map<Clip, Promise<ArrayBuffer>>();
   private clips = new Map<Clip, AudioBuffer>();
+  private loops = new Map<Loop, { src: AudioBufferSourceNode; gain: GainNode }>();
+  private wantLoops = new Map<Loop, number>();
+  private tracks = new Map<Track, { el: HTMLAudioElement; gain: GainNode }>();
+  private wantTrack: Track | null = null;
+  private stride = 0;
+  private foot = 0;
 
   constructor() {
     try { this.muted = localStorage.getItem('muted') === '1'; } catch { /* private mode */ }
-    for (const [name, url] of Object.entries(CLIPS) as [Clip, string][]) {
-      this.files.set(name, fetch(assetUrl(url)).then((r) => r.arrayBuffer()));
+    for (const name of SFX) {
+      this.files.set(name, fetch(assetUrl(`/assets/sounds/${name}.mp3`)).then((r) => r.arrayBuffer()));
     }
     // Kept for good: iOS suspends the context again after calls and the like.
     for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, () => this.unlock(), { capture: true });
@@ -51,25 +61,27 @@ class Sound {
       this.ctx = ctx;
       this.master = ctx.createGain();
       this.master.gain.value = this.muted ? 0 : 1;
-      this.master.connect(ctx.destination);
+      // A gentle limiter so a pile-up of hits never clips.
+      const limit = ctx.createDynamicsCompressor();
+      limit.threshold.value = -6;
+      limit.ratio.value = 8;
+      limit.attack.value = 0.003;
+      limit.release.value = 0.15;
+      this.master.connect(limit).connect(ctx.destination);
       this.sfx = ctx.createGain();
-      this.sfx.gain.value = 0.9;
+      this.sfx.gain.value = 0.85;
       this.music = ctx.createGain();
-      this.music.gain.value = 0.5;
       this.sfx.connect(this.master);
       this.music.connect(this.master);
-      this.noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const data = this.noise.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
       for (const [name, file] of this.files) {
         file.then((b) => ctx.decodeAudioData(b)).then((buf) => {
           this.clips.set(name, buf);
-          if (name === 'menu' && this.wantMusic) this.startMusic();
+          if (this.wantLoops.has(name as Loop)) this.loop(name as Loop, this.wantLoops.get(name as Loop)!);
         }, () => {});
       }
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
-    if (this.wantMusic) this.startMusic();
+    if (this.wantTrack) this.startTrack(this.wantTrack);
   }
 
   toggleMute() {
@@ -79,125 +91,183 @@ class Sound {
     return this.muted;
   }
 
-  /** Time to schedule at, or null when there's nothing to hear. */
-  private now() {
-    return this.ctx && this.ctx.state === 'running' && !this.muted ? this.ctx.currentTime : null;
+  /**
+   * Play a clip: `from` seconds in (to catch up when it starts late), faded
+   * out after `length` s if given. False if it isn't loaded yet, so the
+   * caller can try again.
+   */
+  play(name: Clip, o: PlayOpts = {}) {
+    const ctx = this.ctx, buf = this.clips.get(name);
+    if (!ctx || !buf || ctx.state !== 'running') return false;
+    const from = o.from ?? 0;
+    if (this.muted || from >= buf.duration) return true;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf;
+    src.playbackRate.value = o.rate ?? 1;
+    g.gain.value = o.vol ?? 1;
+    src.connect(g).connect(this.sfx);
+    const t = ctx.currentTime + (o.delay ?? 0);
+    // A sound going wrong must never take the game loop down with it.
+    try {
+      src.start(t, Math.max(0, from));
+      if (o.length) {
+        g.gain.setValueAtTime(o.vol ?? 1, t + o.length * 0.6);
+        g.gain.linearRampToValueAtTime(0, t + o.length);
+        src.stop(t + o.length + 0.05);
+      }
+    } catch { /* skip this one */ }
+    return true;
   }
 
-  private tone(f: number, at: number, dur: number, type: OscillatorType = 'square', vol = 0.2, to = 0) {
-    const ctx = this.ctx!;
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(f, at);
-    if (to) o.frequency.exponentialRampToValueAtTime(to, at + dur);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.exponentialRampToValueAtTime(vol, at + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    o.connect(g).connect(this.sfx);
-    o.start(at);
-    o.stop(at + dur + 0.02);
+  /** The same sound a little different each time: pitch and level wander. */
+  private vary(name: Clip, vol: number, spread = 0.08, o: PlayOpts = {}) {
+    return this.play(name, { ...o, vol: vol * (0.85 + Math.random() * 0.15), rate: (o.rate ?? 1) * (1 + (Math.random() * 2 - 1) * spread) });
   }
 
-  /** A burst of filtered noise. */
-  private hiss(at: number, dur: number, vol: number, freq: number) {
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
-    src.buffer = this.noise;
-    f.type = 'lowpass';
-    f.frequency.value = freq;
-    g.gain.setValueAtTime(vol, at);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    src.connect(f).connect(g).connect(this.sfx);
-    src.start(at, Math.random() * 0.5);
-    src.stop(at + dur + 0.02);
-  }
-
-  // ── Effects ────────────────────────────────────────────────────────
-  /** Ran through an item box: a quick sparkly arpeggio. */
-  pickup() {
-    const t = this.now();
-    if (t === null) return;
-    [84, 88, 91, 96].forEach((n, i) => this.tone(midi(n), t + i * 0.055, 0.14, 'square', 0.09));
-    this.tone(midi(103), t + 0.22, 0.25, 'sine', 0.07);
-  }
+  // ── Menu ───────────────────────────────────────────────────────────
+  /** Any button. */
+  tap() { this.vary('tap', 1, 0.05); }
+  /** A character or a map picked. */
+  select() { this.vary('select', 1, 0.03); }
+  /** Flicking through the characters. */
+  swipe() { this.vary('swipe', 1, 0.06); }
 
   /**
    * Pressed start. The press may be the page's first tap, which is what makes
    * the audio context, so the clip may still be decoding: try for a moment.
    */
   click(tries = 8) {
-    if (!this.play('click') && tries > 0) setTimeout(() => this.click(tries - 1), 40);
+    if (!this.play('confirm') && tries > 0) setTimeout(() => this.click(tries - 1), 40);
   }
 
-  /** Tripped over something or knocked down: the thud. */
-  stumble() {
-    this.play('thud', THUD.from, THUD.length);
+  // ── Running ────────────────────────────────────────────────────────
+  /** Footfalls for the player's run: call every frame. */
+  run(dt: number, speed: number, grounded: boolean, surface: Surface) {
+    if (!grounded || speed < 2) { this.stride = STRIDE * 0.7; return; }
+    this.stride += speed * dt;
+    if (this.stride < STRIDE) return;
+    this.stride -= STRIDE;
+    this.foot = (this.foot + 1 + Math.floor(Math.random() * 3)) % 5;
+    // Left and right feet land a touch differently.
+    this.vary(`step-${surface}`, this.foot % 2 ? 1 : 0.8, 0.07, { from: this.foot * STEP_GAP, length: STEP_LEN });
   }
 
-  /** Down a hole: a falling slide whistle, then the landing. */
-  fall() {
-    const t = this.now();
-    if (t === null) return;
-    this.tone(900, t, 0.5, 'triangle', 0.14, 160);
-    this.hiss(t + 0.45, 0.25, 0.55, 500);
-    this.tone(120, t + 0.45, 0.22, 'sine', 0.35, 40);
+  jump() { this.vary('jump', 1, 0.06); }
+  land() { this.vary('land', 0.8, 0.08); }
+  lane() { this.vary('whoosh', 0.6, 0.1, { rate: 1.35 }); }
+  slide() { this.vary('slide', 1, 0.06); }
+  /** Tripped over something or knocked down. */
+  stumble() { this.vary('hit', 1, 0.04); }
+  sideHit() { this.vary('bump', 1, 0.06); }
+  bump(soft: boolean) { this.vary('bump', soft ? 0.55 : 0.85, 0.1); }
+  smash() { this.vary('smash', 1, 0.08); }
+  /** Down a hole: a falling whistle, then the landing. */
+  fall() { this.play('fall'); }
+  dash() { this.play('dash'); }
+  dashReady() { this.play('ready'); }
+  /** A clean pass: a pluck that climbs with the Focus level. */
+  focus(level: number) { this.play('pluck', { vol: 0.8, rate: 2 ** ((level - 1) * 2 / 12) }); }
+
+  // ── Items ──────────────────────────────────────────────────────────
+  pickup() { this.vary('pickup', 1, 0.03); }
+  boost() { this.play('boost'); }
+  shield() { this.play('shield'); }
+  shieldPop() { this.play('shield-pop'); }
+  ink() { this.play('ink'); }
+  inked() { this.vary('splat', 1, 0.05); }
+  spring() { this.vary('spring', 1, 0.04); }
+  rocket(on: boolean) {
+    if (on) {
+      this.play('rocket');
+      this.loop('rocket-loop', 0.8);
+    } else {
+      this.loop('rocket-loop', 0);
+      this.play('rocket-end');
+    }
   }
 
-  /**
-   * Play a recorded clip, `from` seconds into it (to catch up when it starts
-   * late), faded out after `length` s if given. False if it isn't loaded yet,
-   * so the caller can try again.
-   */
-  play(name: Clip, from = 0, length = 0) {
-    const ctx = this.ctx, buf = this.clips.get(name);
-    if (!ctx || !buf || ctx.state !== 'running') return false;
-    if (this.muted || from >= buf.duration) return true;
-    const src = ctx.createBufferSource(), g = ctx.createGain();
-    src.buffer = buf;
-    src.connect(g).connect(this.sfx);
-    const t = ctx.currentTime;
-    // A sound going wrong must never take the game loop down with it.
-    try {
-      src.start(t, Math.max(0, from));
-      if (length) {
-        g.gain.setValueAtTime(1, t + length * 0.6);
-        g.gain.linearRampToValueAtTime(0, t + length);
-        src.stop(t + length + 0.05);
-      }
-    } catch { /* skip this one */ }
-    return true;
+  // ── Start, finish, podium ──────────────────────────────────────────
+  /** The gun: the crowd at the start roars. */
+  gun() { this.play('cheer', { vol: 0.6, length: 4 }); }
+  /** Over the line. */
+  finish(place: number) {
+    this.play('cheer');
+    if (place === 1) this.play('you-win', { delay: 0.35 });
+    this.play(place === 1 ? 'fanfare-win' : place <= 3 ? 'fanfare-good' : 'fanfare-lose', { delay: place === 1 ? 1.3 : 0.4 });
+  }
+  medal(place: number) {
+    this.vary('medal', 1, 0.02, { rate: place === 0 ? 1 : place === 1 ? 0.94 : 0.89 });
+    if (place === 0) this.play('popper', { delay: 0.1 });
+  }
+  fireworks() { this.play('fireworks', { vol: 0.8 }); }
+
+  // ── Loops and music ────────────────────────────────────────────────
+  /** Fade a looping bed (crowd, countryside, rocket) to `vol`; 0 stops it. */
+  loop(name: Loop, vol: number) {
+    if (vol > 0) this.wantLoops.set(name, vol);
+    else this.wantLoops.delete(name);
+    const ctx = this.ctx;
+    if (!ctx) return;
+    let l = this.loops.get(name);
+    if (!l && vol > 0) {
+      const buf = this.clips.get(name);
+      if (!buf) return; // starts once decoded
+      const src = ctx.createBufferSource(), gain = ctx.createGain();
+      src.buffer = buf;
+      src.loop = true;
+      gain.gain.value = 0;
+      src.connect(gain).connect(this.sfx);
+      src.start(ctx.currentTime, Math.random() * buf.duration);
+      this.loops.set(name, (l = { src, gain }));
+    }
+    if (!l) return;
+    l.gain.gain.setTargetAtTime(vol, ctx.currentTime, 0.25);
+    if (vol <= 0) {
+      const old = l;
+      this.loops.delete(name);
+      setTimeout(() => { try { old.src.stop(); } catch { /* already */ } }, 1500);
+    }
   }
 
-  // ── Menu music ─────────────────────────────────────────────────────
+  /** Which music plays: the menu tune, the race tune or none. Crossfades. */
+  setMusic(track: Track | null) {
+    this.wantTrack = track;
+    for (const [name, t] of this.tracks) if (name !== track) this.fadeTrack(t, 0);
+    if (track) this.startTrack(track);
+  }
+
+  /** Kept for callers from before the race had its own tune. */
   menuMusic(on: boolean) {
-    this.wantMusic = on;
-    if (on) this.startMusic();
-    else this.stopMusic();
+    this.setMusic(on ? 'menu' : null);
   }
 
-  private startMusic() {
-    const ctx = this.ctx, buf = this.clips.get('menu');
-    if (this.musicSrc || !ctx || !buf) return;
-    const src = ctx.createBufferSource(), gain = ctx.createGain();
-    src.buffer = buf;
-    src.loop = true;
-    [src.loopStart, src.loopEnd] = MENU_LOOP;
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.8);
-    src.connect(gain).connect(this.music);
-    src.start(ctx.currentTime, MENU_LOOP[0]);
-    this.musicSrc = { src, gain };
+  private startTrack(name: Track) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    let t = this.tracks.get(name);
+    if (!t) {
+      const el = new Audio(assetUrl(`/assets/sounds/music-${name}.mp3`));
+      el.loop = true;
+      el.preload = 'auto';
+      el.crossOrigin = 'anonymous';
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      ctx.createMediaElementSource(el).connect(gain).connect(this.music);
+      this.tracks.set(name, (t = { el, gain }));
+    }
+    // The race tune starts from the top each race; a tap mid-race only resumes it.
+    if (t.el.paused) {
+      if (name === 'race') t.el.currentTime = 0;
+      void t.el.play().catch(() => {});
+    }
+    this.fadeTrack(t, MUSIC_VOL[name]);
   }
 
-  /** Fade the music out quickly (the race is starting). */
-  private stopMusic() {
-    const m = this.musicSrc, ctx = this.ctx;
-    if (!m || !ctx) return;
-    this.musicSrc = null;
-    m.gain.gain.cancelScheduledValues(ctx.currentTime);
-    m.gain.gain.setValueAtTime(m.gain.gain.value, ctx.currentTime);
-    m.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
-    m.src.stop(ctx.currentTime + 0.45);
+  private fadeTrack(t: { el: HTMLAudioElement; gain: GainNode }, vol: number) {
+    const ctx = this.ctx!;
+    t.gain.gain.cancelScheduledValues(ctx.currentTime);
+    t.gain.gain.setTargetAtTime(vol, ctx.currentTime, vol ? 0.3 : 0.15);
+    if (!vol) setTimeout(() => { if (t.gain.gain.value < 0.01) t.el.pause(); }, 900);
   }
 }
 
