@@ -70,6 +70,7 @@ export class Hud {
 
   constructor(parent: HTMLElement) {
     this.root = el('div', 'hud', parent);
+    el('div', 'vignette', this.root);
     this.race = el('div', 'race hidden', this.root);
     const top = el('div', 'top', this.race);
     this.rank = el('div', 'rank', top);
@@ -249,9 +250,12 @@ export class Hud {
     box.classList.add('show');
   }
 
-  countdown(text: string, sub = '') {
+  /** @param tone 'n3' | 'n2' | 'n1' | 'go': the big bouncy count, coloured per beat */
+  countdown(text: string, sub = '', tone = '') {
     this.big.textContent = text;
     this.sub.textContent = sub;
+    this.big.dataset.tone = tone;
+    this.sub.dataset.tone = tone;
     for (const e of [this.big, this.sub]) {
       e.classList.remove('pop');
       void e.offsetWidth;
@@ -363,6 +367,17 @@ export class Hud {
       top: top ? top.offsetTop + top.offsetHeight : 0,
       bottom: panel && !side ? innerHeight - panel.offsetTop : 0,
       right: panel && side ? innerWidth - panel.offsetLeft : 0,
+    };
+  }
+
+  /** Screen space the menu's logo (top) and panel (bottom) cover, for framing the runner between them. */
+  menuInsets() {
+    const top = this.menu.querySelector<HTMLElement>('.menu-top');
+    const panel = this.menu.querySelector<HTMLElement>('.panel');
+    return {
+      top: top ? top.offsetTop + top.offsetHeight : 0,
+      // The "choose a runner" chip pokes out above the panel.
+      bottom: panel ? innerHeight - panel.offsetTop + 22 : 0,
     };
   }
 

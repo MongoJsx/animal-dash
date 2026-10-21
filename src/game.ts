@@ -12,6 +12,7 @@ import { Online, type NetMove, type NetMsg } from './net/online.ts';
 import { Remote } from './net/remote.ts';
 import { CharacterView, preloadCharacters, type AnimState, type CharacterDef } from './render/character.ts';
 import { installBend, setBendPath } from './render/bend.ts';
+import { installGrade } from './render/grade.ts';
 import { Debris } from './render/debris.ts';
 import { Environment } from './render/environment.ts';
 import { Bubble, ItemBoxes, ItemTag, RocketPack } from './render/itemView.ts';
@@ -27,6 +28,7 @@ import { TrackPath } from './world/path.ts';
 import { buildTrack, type Track } from './world/track.ts';
 
 installBend();
+installGrade();
 
 type State = 'menu' | 'countdown' | 'race' | 'done' | 'results';
 
@@ -524,7 +526,7 @@ export class Game {
       // 3, 2, 1 with the beeps.
       if (this.beat < 3 && into >= this.beat && this.countdownT < this.goAt) {
         this.beat = Math.min(3, Math.floor(into) + 1);
-        this.hud.countdown(`${4 - this.beat}`, this.beat < 3 ? 'ON YOUR MARKS' : 'SET');
+        this.hud.countdown(`${4 - this.beat}`, this.beat < 3 ? 'ON YOUR MARKS' : 'SET', `n${4 - this.beat}`);
       }
       if (this.phase === 'marks' && this.countdownT >= MARKS_TIME) {
         this.phase = 'set';
@@ -537,7 +539,7 @@ export class Game {
         this.gunT = 0;
         if (this.startAt !== null) this.gunWall = this.startAt + this.goAt * 1000;
         this.shake = 0.12;
-        this.hud.countdown('ปัง! ไป!', 'GO');
+        this.hud.countdown('GO!', 'ปัง! ไป!', 'go');
       }
       return;
     }
@@ -926,6 +928,8 @@ export class Game {
         v.update(this.t, dt);
         // Behind the runner = between them and the camera: see through it.
         v.setGhost(end < d - 0.3 || (v.o.hit && v.o.d < d + 2));
+        // Well past it, it's only in the way of the view: gone.
+        if (end < d - 3) v.root.visible = false;
       }
     }
   }
@@ -1096,11 +1100,22 @@ export class Game {
     const t = this.camTarget;
     const look = this.camLook;
 
+    if (!this.podium && this.state !== 'menu' && cam.view?.enabled) {
+      cam.clearViewOffset();
+      this.viewOffset.set(0, 0);
+    }
     if (this.state === 'menu') {
-      // Showcase the selected character from the front.
-      t.lerp(new THREE.Vector3(p.x + 1.2, 1.5, p.d + 4.8), k);
-      look.set(p.x, 1.0, p.d);
+      // Showcase the selected character from the front, whole, in the gap
+      // between the logo and the panel.
+      const w = innerWidth, h = innerHeight;
+      const ins = this.hud.menuInsets();
+      const fh = Math.max(0.3, (h - ins.top - ins.bottom) / h);
       cam.fov = portrait ? 60 : 45;
+      const dist = 1.05 / (Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * fh); // ≈ 2.1 m of height in the gap
+      t.lerp(new THREE.Vector3(p.x + dist * 0.25, 1.25, p.d + dist), k);
+      look.set(p.x, 0.92, p.d);
+      this.viewOffset.lerp(new THREE.Vector2(0, (ins.bottom - ins.top) / 2), k);
+      cam.setViewOffset(w, h, this.viewOffset.x, this.viewOffset.y, w, h);
     } else if (this.podium) {
       // Ceremony: start tight on the champion, pull back to frame the podium in
       // the space the title and the results panel leave free.
