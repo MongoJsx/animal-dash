@@ -6,8 +6,10 @@ import { Rng } from '../core/rng.ts';
 import type { CountryId, Palette } from '../world/biomes.ts';
 import { assetUrl } from '../core/asset.ts';
 import { noBend } from './bend.ts';
+import { SkyLife } from './skyLife.ts';
 
 const _white = new THREE.Color(0xffffff);
+const _zenith = new THREE.Color(0x1d63c9);
 
 export interface Look {
   top: THREE.Color;
@@ -235,27 +237,64 @@ const BACKDROPS: Partial<Record<CountryId | 'fable', Backdrop>> = {
   fable: { url: '/assets/sky/fable-village.jpg', aspect: 1213 / 1024, copies: 6, focus: 0.68, horizon: 0.35, sky: 0x3e90f4, ground: 0x8aa196 },
 };
 const BACKDROP_R = 345;
-// The picture slides round as you run (one copy = 1/copies of the horizon),
-// and drifts a little on its own so it is never quite still.
-const BACKDROP_PAN = 1.2 / 2000; // copies per metre run
-const BACKDROP_DRIFT = 0.006; // copies per second
 const BACKDROP_HORIZON_Y = 30; // the picture's sea line this far above the far ground
+// Over its top edge the picture melts into its own sky: the last stretch blends
+// into a blurred copy of the top band, which carries on up this far (as a share
+// of the picture's height) and fades into the dome.
+const BACKDROP_MELT = 0.24;
+const BACKDROP_RISE = 0.5;
+
+const BACKDROP_VS = /* glsl */ `
+uniform vec4 uvTransform; // repeat.x, offset.x, picture span (1 + rise)
+varying vec2 vUv;
+void main() {
+  vUv = vec2( uv.x * uvTransform.x + uvTransform.y, uv.y * uvTransform.z );
+  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+}`;
+
+const BACKDROP_FS = /* glsl */ `
+uniform sampler2D map;
+uniform vec3 tint;
+uniform vec4 uvTransform;
+varying vec2 vUv;
+void main() {
+  float v = vUv.y;
+  vec3 col = texture2D( map, vec2( vUv.x, min( v, 0.999 ) ) ).rgb;
+  float melt = smoothstep( 1.0 - ${BACKDROP_MELT.toFixed(2)}, 1.0, v );
+  if ( melt > 0.0 ) {
+    // The top band, heavily blurred (small mips): the sky colour above each column.
+    vec3 sky = ( textureLod( map, vec2( vUv.x - 0.06, 0.93 ), 7.5 ).rgb
+      + textureLod( map, vec2( vUv.x, 0.93 ), 7.5 ).rgb * 2.0
+      + textureLod( map, vec2( vUv.x + 0.06, 0.93 ), 7.5 ).rgb ) * 0.25;
+    col = mix( col, sky, melt );
+  }
+  float a = 1.0 - smoothstep( 1.0, uvTransform.z, v );
+  gl_FragColor = vec4( col * tint, a * a );
+  #include <colorspace_fragment>
+}`;
 
 function backdropMesh(b: Backdrop) {
   const height = (2 * Math.PI * BACKDROP_R) / b.copies / b.aspect;
   const tex = new THREE.TextureLoader().load(assetUrl(b.url));
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.MirroredRepeatWrapping;
-  tex.repeat.x = b.copies;
-  // u runs round from +z; straight ahead at the start (-z) is u = 0.5.
-  tex.offset.x = b.focus - b.copies * 0.5;
   tex.anisotropy = 4;
+  const tall = height * (1 + BACKDROP_RISE);
   const mesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(BACKDROP_R, BACKDROP_R, height, 128, 1, true).translate(0, height / 2 - b.horizon * height + BACKDROP_HORIZON_Y, 0),
-    noBend(new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false })),
+    new THREE.CylinderGeometry(BACKDROP_R, BACKDROP_R, tall, 128, 1, true).translate(0, tall / 2 - b.horizon * height + BACKDROP_HORIZON_Y, 0),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: tex },
+        tint: { value: new THREE.Color(1, 1, 1) },
+        // u runs round from +z; straight ahead at the start (-z) is u = 0.5.
+        uvTransform: { value: new THREE.Vector4(b.copies, b.focus - b.copies * 0.5, 1 + BACKDROP_RISE, 0) },
+      },
+      vertexShader: BACKDROP_VS, fragmentShader: BACKDROP_FS,
+      side: THREE.BackSide, fog: false, depthWrite: false, transparent: true,
+    }),
   );
   mesh.renderOrder = -9;
-  return mesh;
+  return { mesh, top: height * (1 - b.horizon) + BACKDROP_HORIZON_Y };
 }
 
 export class Sky {
@@ -263,11 +302,11 @@ export class Sky {
   private dome: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private ring: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private floor: THREE.Mesh<THREE.CircleGeometry, THREE.MeshLambertMaterial>;
-  private backdrop: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial> | null = null;
+  private backdrop: THREE.Mesh<THREE.CylinderGeometry, THREE.ShaderMaterial> | null = null;
   private backdropSky: THREE.Color | null = null;
   private backdropGround: THREE.Color | null = null;
-  private backdropFocus = 0;
-  private time = 0;
+  private life: SkyLife;
+  private tint = new THREE.Color(1, 1, 1);
 
   constructor(country: CountryId | null, seed: number) {
     this.dome = new THREE.Mesh(
@@ -286,13 +325,16 @@ export class Sky {
     this.floor = new THREE.Mesh(new THREE.CircleGeometry(380, 40).rotateX(-Math.PI / 2), noBend(new THREE.MeshLambertMaterial({ color: 0x88aa66 })));
     this.floor.receiveShadow = false;
     this.root.add(this.dome, this.ring, this.floor);
+    let seam = 110;
     const b = BACKDROPS[country ?? 'fable'];
     if (b) {
-      // The picture has its own mountains: it replaces the drawn skyline.
-      this.backdrop = backdropMesh(b);
+      // The picture has its own mountains: it replaces the drawn skyline. It
+      // stays put: the clouds and birds in front of it are what move.
+      const { mesh, top } = backdropMesh(b);
+      this.backdrop = mesh;
+      seam = top;
       this.backdropSky = new THREE.Color(b.sky);
       this.backdropGround = new THREE.Color(b.ground);
-      this.backdropFocus = this.backdrop.material.map!.offset.x;
       // The far ground runs into the picture: its colour, not fog white (a
       // high camera, like on the Great Wall, sees a lot of it).
       this.floor.material.fog = false;
@@ -303,13 +345,16 @@ export class Sky {
       this.ring.visible = false;
       this.root.add(this.backdrop);
     }
+    this.life = new SkyLife(country, seed, seam);
+    this.root.add(this.life.root);
   }
 
-  update(cam: THREE.Vector3, look: Look, groundY: number, d: number, dt: number) {
-    this.time += dt;
+  /** @param yaw the track's heading where the runner is (see TrackPath.frame) */
+  update(cam: THREE.Vector3, look: Look, groundY: number, yaw: number, dt: number) {
     this.dome.position.copy(cam);
     this.ring.position.set(cam.x, groundY - 2, cam.z);
     this.floor.position.set(cam.x, groundY, cam.z);
+    this.life.root.position.set(cam.x, groundY, cam.z);
     const u = this.dome.material.uniforms;
     u.top.value.copy(look.top);
     u.horizon.value.copy(look.horizon);
@@ -317,16 +362,21 @@ export class Sky {
     sunDirection(look.sunAngle, u.sunDir.value);
     this.ring.material.uniforms.hazeColor.value.copy(look.horizon);
     this.floor.material.color.copy(look.side).lerp(look.horizon, 0.25);
+    // The light on the far scene: full on a sunny day, dimmer and tinted at dusk or in snow.
+    this.tint.copy(look.hemiSky).lerp(_white, 0.3).multiplyScalar(Math.min(1, look.sunI / 2.4) ** 1.6);
     if (this.backdrop) {
       this.backdrop.position.set(cam.x, groundY, cam.z);
-      this.backdrop.material.map!.offset.x = this.backdropFocus + d * BACKDROP_PAN + this.time * BACKDROP_DRIFT;
-      // The picture is a sunny day: dim and tint it to the zone's light (dusk, snow).
-      const tint = this.backdrop.material.color.copy(look.hemiSky).lerp(_white, 0.3).multiplyScalar(Math.min(1, look.sunI / 2.4) ** 1.6);
-      // Above the picture's top edge the dome carries on in its sky blue.
-      u.top.value.copy(this.backdropSky!).multiply(tint);
-      u.horizon.value.copy(this.backdropSky!).multiply(tint);
-      this.floor.material.color.copy(this.backdropGround!).multiply(tint);
+      // The picture is a sunny day: dim and tint it to the zone's light.
+      this.backdrop.material.uniforms.tint.value.copy(this.tint);
+      // Above the picture the dome carries on in its sky blue, deepening overhead.
+      u.horizon.value.copy(this.backdropSky!).multiply(this.tint);
+      u.top.value.copy(this.backdropSky!).lerp(_zenith, 0.45).multiply(this.tint);
+      this.floor.material.color.copy(this.backdropGround!).multiply(this.tint);
+    } else {
+      this.tint.setScalar(Math.min(1, look.sunI / 2.2));
     }
+    // Straight ahead along the track, as an azimuth round the sky.
+    this.life.update(dt, Math.PI / 2 + yaw, this.tint, u.horizon.value);
   }
 
   dispose() {
@@ -338,8 +388,9 @@ export class Sky {
     this.floor.material.dispose();
     if (this.backdrop) {
       this.backdrop.geometry.dispose();
-      this.backdrop.material.map?.dispose();
+      this.backdrop.material.uniforms.map.value.dispose();
       this.backdrop.material.dispose();
     }
+    this.life.dispose();
   }
 }

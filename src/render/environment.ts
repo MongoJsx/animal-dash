@@ -256,7 +256,7 @@ export class Environment {
     blendLook(this.look, lookOf(BIOMES[zone]), dt > 0 ? 1 - Math.exp(-dt * 0.9) : 1);
     this.atmosphere.update(dt, playerD);
     const f = this.path.frame(playerD);
-    this.sky.update(cam, this.look, f.y + this.groundBelow(playerD), playerD, dt);
+    this.sky.update(cam, this.look, f.y + this.groundBelow(playerD), f.yaw, dt);
   }
 
   /** Far ground height: below every bit of track in view. */
