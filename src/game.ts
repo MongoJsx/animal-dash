@@ -14,6 +14,9 @@ import { CharacterView, preloadCharacters, type AnimState, type CharacterDef } f
 import { installBend, setBendPath } from './render/bend.ts';
 import { Debris } from './render/debris.ts';
 import { Environment } from './render/environment.ts';
+import { Juice } from './render/juice.ts';
+import { Crowd } from './render/crowd.ts';
+import { setWind } from './render/shapes.ts';
 import { Bubble, ItemBoxes, ItemTag, RocketPack } from './render/itemView.ts';
 import { warmUpProps } from './render/props.ts';
 import { ObstacleView } from './render/obstacleView.ts';
@@ -65,6 +68,8 @@ export class Game {
   private sun = new THREE.DirectionalLight(0xffffff, 2.2);
   private hemi = new THREE.HemisphereLight(0xffffff, 0x8d7b68, 1.7);
   private debris = new Debris();
+  private juice = new Juice();
+  private crowd: Crowd | null = null;
   private itemBoxes: ItemBoxes | null = null;
   private playerBubble = new Bubble();
   private playerRocket = new RocketPack();
@@ -145,7 +150,7 @@ export class Game {
     this.hud = new Hud(container);
     this.hud.onDash = () => this.input.press('dash');
     this.hud.onItem = () => this.input.press('item');
-    this.scene.add(this.debris.mesh, this.playerBubble.mesh, this.playerRocket.root, this.playerTag.sprite);
+    this.scene.add(this.debris.mesh, this.juice.root, this.playerBubble.mesh, this.playerRocket.root, this.playerTag.sprite);
     addEventListener('keydown', (e) => this.menuKey(e));
 
     addEventListener('resize', () => this.resize());
@@ -226,8 +231,15 @@ export class Game {
     }
     this.itemBoxes = new ItemBoxes(this.track.items);
     this.scene.add(this.itemBoxes.mesh);
+    if (this.crowd) {
+      this.scene.remove(this.crowd.mesh);
+      this.crowd.dispose();
+    }
+    this.crowd = new Crowd(seed);
+    this.scene.add(this.crowd.mesh);
     this.path = new TrackPath(seed, this.track.biomes);
     setBendPath(this.path);
+    this.juice.setPath(this.path);
     this.env = new Environment(seed, this.track.biomes, this.track, this.path);
     this.env.snapLook(0);
     this.scene.add(this.env.root);
@@ -537,6 +549,7 @@ export class Game {
         this.gunT = 0;
         if (this.startAt !== null) this.gunWall = this.startAt + this.goAt * 1000;
         this.shake = 0.12;
+        this.juice.cannons(this.player.d + 3);
         this.hud.countdown('ปัง! ไป!', 'GO');
       }
       return;
@@ -779,6 +792,7 @@ export class Game {
     switch (e.type) {
       case 'jump':
       case 'bounce':
+        this.juice.takeoff(this.player);
         v?.play('jump', e.airTime);
         this.playerLock = e.airTime;
         break;
@@ -791,6 +805,7 @@ export class Game {
         break;
       case 'stumble':
         sound.stumble();
+        this.juice.hit(this.player, true, true);
         v?.play('stumble', 0.9);
         this.playerLock = 0.9;
         this.shake = 0.35;
@@ -798,12 +813,14 @@ export class Game {
         this.hud.hit();
         break;
       case 'sidehit':
+        this.juice.hit(this.player, false, true);
         this.shake = 0.15;
         this.hud.flash('ชนข้าง!');
         this.hud.hit();
         break;
       case 'fall':
         sound.fall();
+        this.juice.dustCloud(this.player);
         v?.play('fall', 0.8);
         this.playerLock = 0.8;
         this.shake = 0.3;
@@ -819,6 +836,7 @@ export class Game {
         if (this.player.dashing) this.shake = Math.max(this.shake, 0.12);
         break;
       case 'dash':
+        this.juice.ring(this.player, 0x9be7ff, 12, 5);
         v?.play('burst', DASH.time);
         this.playerLock = DASH.time;
         this.shake = 0.25;
@@ -829,6 +847,7 @@ export class Game {
         this.hud.flash(desktop ? 'แดชพร้อม! กด Shift' : 'แดชพร้อม! กดปุ่ม DASH', 'good');
         break;
       case 'shoved':
+        this.juice.hit(this.player, false, true);
         v?.play('stumble', 0.35);
         this.playerLock = 0.35;
         this.shake = Math.max(this.shake, 0.18);
@@ -841,6 +860,7 @@ export class Game {
         break;
       case 'stunned':
         sound.stumble();
+        this.juice.hit(this.player, true, true);
         v?.play('stumble', 0.45);
         this.playerLock = 0.45;
         this.shake = 0.3;
@@ -849,12 +869,14 @@ export class Game {
         break;
       case 'pickup':
         sound.pickup();
+        this.juice.pickup(this.player);
         // Until they've used one, remind them how.
         this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะปุ่มซ้ายล่างเพื่อใช้', 'good');
         break;
       case 'item': {
         const p = this.player;
         this.usedItem = true;
+        this.juice.item(p, e.item);
         if (e.item === 'boost') {
           v?.play('burst', 0.6);
           this.playerLock = 0.6;
@@ -880,6 +902,7 @@ export class Game {
         this.hud.flash('จรวดหมด! ลงจอด', 'good');
         break;
       case 'shieldBlock':
+        this.juice.ring(this.player, 0x7ae0ff, 14, 3);
         this.shake = Math.max(this.shake, 0.15);
         this.debris.burst(this.player.x, this.player.y + 1, this.player.d + 0.6, POP_COLORS, 16, 0.9, this.player.speed);
         this.hud.flash('โล่กันไว้!', 'good');
@@ -891,7 +914,7 @@ export class Game {
         break;
       case 'focus':
         this.hud.setFocus(e.level);
-        if (e.level === 10) this.hud.flash('FOCUS MAX!', 'good');
+        if (e.level === 10) { this.hud.flash('FOCUS MAX!', 'good'); this.juice.focusMax(this.player); }
         break;
       case 'finish': {
         // A friend already over the line may not have sent their time yet.
@@ -899,6 +922,7 @@ export class Game {
         // Run it out first; the pose comes once they've slowed (see render).
         this.endPose = place === 1 ? 'victory' : 'defeat';
         sound.play('finish');
+        this.juice.finishShow();
         this.playerLock = 99;
         this.hud.flash(place === 1 ? 'เข้าเส้นชัยที่ 1!' : `เข้าเส้นชัยที่ ${place}`, 'good');
         break;
@@ -953,9 +977,13 @@ export class Game {
       const rolling = p.itemRoll > 0 ? ROLL_ICONS[Math.floor(this.t * 14) % ROLL_ICONS.length] : null;
       this.playerTag.update(this.podium || !p.item ? '' : rolling ?? ITEM_ICON[p.item], this.headAt(p.x, p.y, p.d), dt);
       if (p.flying) this.exhaust(p.x, p.y, p.d);
+      if (!this.podium && (this.state === 'race' || this.state === 'done')) this.juice.runner(p, p.sliding, p.flying, 1, dt);
       v.update(dt, this.podium ? 0 : p.speed, this.podium ? 0 : p.laneVelocity);
     }
     this.debris.update(dt);
+    this.crowd?.update(dt, p.d);
+    setWind(this.clock.elapsedTime);
+    if (this.track) this.juice.setGround(BIOMES[biomeAt(this.track.biomes, p.d)].ground);
     this.itemBoxes?.update(this.t, p.d, p.took);
     for (const r of this.rivals) {
       const s = r.sim;
@@ -968,7 +996,8 @@ export class Game {
         if (m === 'bounce') { r.view.play('jump', airTime(PLAYER.bounceVelocity)); r.lock = airTime(PLAYER.bounceVelocity); }
         if (m === 'fall') { r.view.play('fall', 0.8); r.lock = 0.8; }
         if (m === 'slide') { r.view.play('slide', PLAYER.slideTime); r.lock = PLAYER.slideTime; }
-        if (m === 'stumble') { r.view.play('stumble', 0.9); r.lock = 0.9; }
+        if (m === 'stumble') { r.view.play('stumble', 0.9); r.lock = 0.9; if (s.d > p.d - 1) this.juice.hit(s, true, false); }
+        if (m === 'stunned' && s.d > p.d - 1) this.juice.hit(s, false, false);
       }
       r.lock -= dt;
       const started = s instanceof Rival ? s.launched : s.d > 0.3;
@@ -988,6 +1017,11 @@ export class Game {
       r.rocket.update(flying && !this.podium, s.x, s.y, s.d, dt);
       r.tag.update(this.podium || !s.item ? '' : ITEM_ICON[s.item], this.headAt(s.x, s.y, s.d), dt);
       if (flying) this.exhaust(s.x, s.y, s.d);
+      if (!this.podium && (this.state === 'race' || this.state === 'done')) {
+        // Only rivals ahead: dust behind the player would puff up at the camera.
+        const ahead = s.d - p.d;
+        this.juice.runner(s, 'sliding' in s && s.sliding, flying, ahead > 1 && ahead < 30 ? 0.7 : 0, dt);
+      }
       // Ink dripping off a splattered rival.
       if (s instanceof Rival && s.inked && Math.random() < 0.3) this.debris.burst(s.x, s.y + 1.6, s.d, INK_COLORS, 1, 0.5, s.speed);
       // Rivals between the camera and the player would hide what's coming.
@@ -1000,6 +1034,11 @@ export class Game {
     if (this.menuCheer > 0 && (this.menuCheer -= dt) <= 0 && this.state === 'menu') this.playerView?.play('idle');
 
     this.updateCamera(dt);
+    {
+      const racing = this.state === 'race' && !this.podium;
+      const lines = !racing ? 0 : p.dashing ? 1 : p.flying || p.itemBoostT > 0 ? 0.8 : p.focus >= 10 ? 0.3 : 0;
+      this.juice.update(dt, p.d, this.track?.items ?? null, p.took, this.camera, this.headAt(p.x, p.y + 0.15, p.d), lines);
+    }
     if (this.env) {
       this.env.update(p.d, dt, this.camera.position);
       this.applyLook();

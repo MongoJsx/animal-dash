@@ -4,6 +4,32 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const flatMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+
+// Wind: every vertex carries (sway, flutter) weights, zero for anything solid.
+// Leaves and fronds sway slowly, flags ripple fast, all in the vertex shader.
+const wind = { value: 0 };
+/** Advance the wind (seconds). */
+export function setWind(t: number) {
+  wind.value = t;
+}
+// The shared hook (bend.ts) is installed later, so look it up when compiling.
+flatMaterial.onBeforeCompile = function (shader, renderer) {
+  THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
+  shader.uniforms.windTime = wind;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+uniform float windTime;
+attribute vec2 sway;`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+if ( sway.x + sway.y > 0.0 ) {
+  float ph = position.x * 0.21 + position.z * 0.17;
+  transformed.x += sway.x * ( sin( windTime * 1.6 + ph ) * 0.16 + sin( windTime * 3.7 + ph * 2.3 ) * 0.04 );
+  transformed.z += sway.x * sin( windTime * 1.2 + ph * 1.4 ) * 0.1;
+  transformed.x += sway.y * sin( windTime * 9.0 + position.z * 4.5 + position.y * 1.5 ) * 0.11;
+  transformed.y += sway.y * sin( windTime * 7.0 + position.z * 3.0 ) * 0.03;
+}`);
+};
+flatMaterial.customProgramCacheKey = () => 'flat-wind';
 /** Unlit: neon, lanterns, lit windows. */
 export const glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
 export const shadowMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false });
@@ -13,8 +39,28 @@ const tmpMatrix = new THREE.Matrix4();
 const tmpQuat = new THREE.Quaternion();
 const tmpEuler = new THREE.Euler();
 
+export type Weight = (x: number, y: number, z: number) => number;
+
 export class Shapes {
   private parts: THREE.BufferGeometry[] = [];
+  private swayW: Weight | null = null;
+  private flutterW: Weight | null = null;
+
+  /** Shapes added inside `build` sway in the wind, weighted per vertex (0 = still, 1 = full). */
+  swaying(w: Weight, build: () => void): this {
+    this.swayW = w;
+    build();
+    this.swayW = null;
+    return this;
+  }
+
+  /** Shapes added inside `build` ripple like cloth (flags), weighted per vertex. */
+  fluttering(w: Weight, build: () => void): this {
+    this.flutterW = w;
+    build();
+    this.flutterW = null;
+    return this;
+  }
 
   add(geom: THREE.BufferGeometry, color: number, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1): this {
     const g = geom.index ? geom.toNonIndexed() : geom.clone();
@@ -27,6 +73,16 @@ export class Shapes {
     tmpQuat.setFromEuler(tmpEuler.set(rx, ry, rz));
     tmpMatrix.compose(new THREE.Vector3(x, y, z), tmpQuat, new THREE.Vector3(sx, sy, sz));
     g.applyMatrix4(tmpMatrix);
+    const sway = new Float32Array(n * 2);
+    if (this.swayW || this.flutterW) {
+      const p = g.attributes.position;
+      for (let i = 0; i < n; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        if (this.swayW) sway[i * 2] = Math.max(0, Math.min(1, this.swayW(x, y, z)));
+        if (this.flutterW) sway[i * 2 + 1] = Math.max(0, Math.min(1, this.flutterW(x, y, z)));
+      }
+    }
+    g.setAttribute('sway', new THREE.BufferAttribute(sway, 2));
     this.parts.push(g);
     return this;
   }
@@ -43,6 +99,11 @@ export class Shapes {
   long(color: number, x: number, y: number, z: number, w: number, h: number, d: number): this {
     const n = Math.min(24, Math.max(1, Math.ceil(d / 2.5)));
     return this.add(longBox(n), color, x, y, z, 0, 0, 0, w, h, d);
+  }
+
+  /** Thin flag cloth (cut along its length so it can ripple), centred at (x, y, z). */
+  cloth(color: number, x: number, y: number, z: number, w: number, h: number, d: number): this {
+    return this.add(CLOTH, color, x, y, z, 0, 0, 0, w, h, d);
   }
 
   /** Gable roof: triangular prism, base on y, ridge along z (before ry). */
@@ -94,6 +155,7 @@ export class Shapes {
 }
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+const CLOTH = new THREE.BoxGeometry(1, 1, 1, 1, 2, 8);
 
 const longBoxes = new Map<number, THREE.BufferGeometry>();
 function longBox(n: number) {

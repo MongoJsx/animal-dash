@@ -59,10 +59,12 @@ export function wire(s: Shapes, color: number, ax: number, ay: number, az: numbe
 // ── Plants ──────────────────────────────────────────────────────────────
 export function roundTree(s: Shapes, rng: Rng, x: number, z: number, h: number, greens: number[], trunk = 0x6b4a2b, y0 = 0) {
   cylinder(s, trunk, x, y0, z, h * 0.06, h * 0.55, 6);
-  for (let i = 0; i < 4; i++) {
-    const r = h * rng.range(0.22, 0.32);
-    blob(s, rng.pick(greens), x + rng.range(-0.25, 0.25) * h, y0 + h * rng.range(0.55, 0.85), z + rng.range(-0.25, 0.25) * h, r, r * 0.85, r, true);
-  }
+  s.swaying((_x, y) => (y - y0) / h * 0.7, () => {
+    for (let i = 0; i < 4; i++) {
+      const r = h * rng.range(0.22, 0.32);
+      blob(s, rng.pick(greens), x + rng.range(-0.25, 0.25) * h, y0 + h * rng.range(0.55, 0.85), z + rng.range(-0.25, 0.25) * h, r, r * 0.85, r, true);
+    }
+  });
 }
 
 export function coconutPalm(s: Shapes, rng: Rng, x: number, z: number, h: number, lean: number) {
@@ -77,14 +79,17 @@ export function coconutPalm(s: Shapes, rng: Rng, x: number, z: number, h: number
     px = nx; py = ny;
   }
   const greens = [0x3f8f3a, 0x4fa44a, 0x2f7a33];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + rng.range(-0.2, 0.2);
-    const len = h * rng.range(0.32, 0.42);
-    const ex = px + Math.cos(a) * len, ez = z + Math.sin(a) * len;
-    const mx = px + Math.cos(a) * len * 0.5, mz = z + Math.sin(a) * len * 0.5;
-    rod(s, greens[i % 3], px, py, z, mx, py + len * 0.18, mz, h * 0.035);
-    rod(s, greens[(i + 1) % 3], mx, py + len * 0.18, mz, ex, py - len * 0.25, ez, h * 0.028);
-  }
+  const cx = px, cy = py;
+  s.swaying((vx, vy, vz) => 0.25 + Math.hypot(vx - cx, vy - cy, vz - z) / (h * 0.4), () => {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + rng.range(-0.2, 0.2);
+      const len = h * rng.range(0.32, 0.42);
+      const ex = px + Math.cos(a) * len, ez = z + Math.sin(a) * len;
+      const mx = px + Math.cos(a) * len * 0.5, mz = z + Math.sin(a) * len * 0.5;
+      rod(s, greens[i % 3], px, py, z, mx, py + len * 0.18, mz, h * 0.035);
+      rod(s, greens[(i + 1) % 3], mx, py + len * 0.18, mz, ex, py - len * 0.25, ez, h * 0.028);
+    }
+  });
   for (let i = 0; i < 3; i++) ball(s, 0x6b8e23, px + rng.range(-0.3, 0.3), py - 0.35, z + rng.range(-0.3, 0.3), 0.22);
 }
 
@@ -102,6 +107,10 @@ export function bamboo(s: Shapes, rng: Rng, x: number, z: number, h: number, lea
   const greens = [0x7cb342, 0x8bc34a, 0x689f38];
   const g = rng.pick(greens);
   const r = rng.range(0.07, 0.11);
+  s.swaying((_x, y) => (y / h) ** 2, () => bambooCane(s, rng, x, z, h, lean, leanZ, g, r));
+}
+
+function bambooCane(s: Shapes, rng: Rng, x: number, z: number, h: number, lean: number, leanZ: number, g: number, r: number) {
   let px = x, py = 0, pz = z;
   for (let i = 1; i <= 3; i++) {
     const t = i / 3;
@@ -129,12 +138,14 @@ export function cherryTree(s: Shapes, rng: Rng, x: number, z: number, h: number,
     const spread = h * rng.range(0.28, 0.42);
     const ex = tx + Math.cos(a) * spread + reach * 0.35, ey = h * rng.range(0.62, 0.8), ez = z + Math.sin(a) * spread;
     rod(s, trunk, tx, ty, z, ex, ey, ez, h * 0.028);
-    for (let k = 0; k < (lite ? 2 : 3); k++) {
-      const r = h * rng.range(0.11, 0.16) * (lite ? 1.2 : 1);
-      blob(s, rng.pick(pinks), ex + rng.range(-0.6, 0.6), ey + rng.range(-0.1, 0.7), ez + rng.range(-0.6, 0.6), r, r * 0.8, r, !lite);
-    }
+    s.swaying((_x, y) => y / h * 0.45, () => {
+      for (let k = 0; k < (lite ? 2 : 3); k++) {
+        const r = h * rng.range(0.11, 0.16) * (lite ? 1.2 : 1);
+        blob(s, rng.pick(pinks), ex + rng.range(-0.6, 0.6), ey + rng.range(-0.1, 0.7), ez + rng.range(-0.6, 0.6), r, r * 0.8, r, !lite);
+      }
+    });
   }
-  blob(s, rng.pick(pinks), tx, h * 0.85, z, h * 0.16, h * 0.12, h * 0.16, true);
+  s.swaying(() => 0.35, () => blob(s, rng.pick(pinks), tx, h * 0.85, z, h * 0.16, h * 0.12, h * 0.16, true));
 }
 
 export function pine(s: Shapes, rng: Rng, x: number, z: number, h: number, snow = false) {
@@ -317,18 +328,19 @@ export function thaiFlag(s: Shapes, x: number, z: number, h: number, royal = fal
   cylinder(s, 0xeeeeee, x, 0, z, 0.05, h, 6);
   ball(s, GOLD, x, h + 0.05, z, 0.09);
   const fz = z - 0.75, fy = h - 0.55;
+  const cloth = (_x: number, _y: number, vz: number) => (z - vz) / 1.4;
   if (royal) {
-    s.box(0xffd60a, x, fy, fz, 0.03, 1.0, 1.4);
+    s.fluttering(cloth, () => s.cloth(0xffd60a, x, fy, fz, 0.03, 1.0, 1.4));
     return;
   }
   const stripes = [0xd62828, 0xffffff, 0x1d3557, 0xffffff, 0xd62828];
   const hs = [0.17, 0.17, 0.33, 0.17, 0.17];
   let y = fy + 0.5;
-  stripes.forEach((c, i) => {
+  s.fluttering(cloth, () => stripes.forEach((c, i) => {
     y -= hs[i] / 2;
-    s.box(c, x, y, fz, 0.03, hs[i], 1.4);
+    s.cloth(c, x, y, fz, 0.03, hs[i], 1.4);
     y -= hs[i] / 2;
-  });
+  }));
 }
 
 /** Street food cart with a big umbrella. */

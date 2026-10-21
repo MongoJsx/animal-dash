@@ -223,7 +223,7 @@ export function startArea(b: Batch, country: CountryId | null, seed: number): TH
     for (const side of [-1, 1]) {
       const x = side * (TRACK_HALF + 8), z = 12 - i * 4;
       cylinder(s, 0xdddddd, x, 0, z, 0.06, 7, 6);
-      s.box(flags[i % flags.length], x, 6.4, z - 0.7, 0.04, 0.9, 1.3);
+      s.fluttering((_x, _y, vz) => (z - vz) / 1.3, () => s.cloth(flags[i % flags.length], x, 6.4, z - 0.7, 0.04, 0.9, 1.3));
     }
   }
   return extras;
@@ -252,7 +252,7 @@ export function finishArea(b: Batch, country: CountryId | null, d: number, seed:
   for (const zz of [z + 6, z - 6]) {
     for (let i = 0; i < 10; i++) {
       const t = (i + 0.5) / 10, x = -TRACK_HALF - 1 + t * (2 * TRACK_HALF + 2);
-      cone(s, flags[i % flags.length], x, 7.6 - Math.sin(t * Math.PI) * 0.5 - 0.6, zz, 0.22, 0.5, 6, Math.PI);
+      s.fluttering((_x, y) => (7.6 - Math.sin(t * Math.PI) * 0.5 - 0.35 - y) * 0.9, () => cone(s, flags[i % flags.length], x, 7.6 - Math.sin(t * Math.PI) * 0.5 - 0.6, zz, 0.22, 0.5, 6, Math.PI));
     }
     rod(s, 0x333333, -TRACK_HALF - 1, 7.6, zz, TRACK_HALF + 1, 7.6, zz, 0.02);
     for (const e of [-1, 1]) cylinder(s, 0xdddddd, e * (TRACK_HALF + 1), 0, zz, 0.07, 7.7, 6);
