@@ -411,7 +411,7 @@ export class Game {
   private shareLink(o: Online) {
     const url = o.link;
     if (navigator.share) {
-      navigator.share({ title: 'Animal Dash', text: 'มาวิ่งแข่งกัน!', url }).catch(() => {});
+      navigator.share({ title: 'วิ่งซิ่งข้ามโลก', text: 'มาวิ่งแข่งกัน!', url }).catch(() => {});
     } else {
       navigator.clipboard?.writeText(url).then(() => this.hud.flash('คัดลอกลิงก์แล้ว', 'good'), () => {});
     }

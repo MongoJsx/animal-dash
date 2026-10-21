@@ -113,7 +113,7 @@ export class Hud {
       : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['ปุ่ม DASH', 'แดช'], ['ปุ่มไอเท็ม', 'ใช้ไอเท็ม']];
     this.menu.innerHTML = `
       <div class="menu-top">
-        <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">ANIMAL DASH</span></div>
+        <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">วิ่งซิ่งข้ามโลก</span></div>
       </div>
       <button class="help-btn" aria-label="วิธีเล่น">?</button>
       <button class="sound-btn" aria-label="เปิด/ปิดเสียง">${sound.muted ? '🔇' : '🔊'}</button>
