@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { DASH, ITEM, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
 import { COUNTDOWN_GO, sound, type Surface } from './core/audio.ts';
-import { Input } from './core/input.ts';
+import { DOUBLE_GAP, Input, type Action } from './core/input.ts';
 import { Rng } from './core/rng.ts';
 import { botActions } from './entities/bot.ts';
 import { resolveContacts } from './entities/contact.ts';
@@ -122,8 +122,8 @@ export class Game {
   private online: Online | null = null;
   private remoteChar: string | null = null;
   private remote: Remote | null = null;
-  /** The player is over the line and was told to wait for the others. */
-  private waitTold = false;
+  /** The player is over the line and was told how many are still out (0 = not told). */
+  private waitTold = 0;
   /** Menu: choosing between a new room and typing in a friend's code. */
   private joining = false;
   private sendTick = 0;
@@ -254,7 +254,7 @@ export class Game {
     this.player.startSlot(START_SLOTS[PLAYER_SLOT], -1);
     this.t = 0;
     this.zone = null;
-    this.waitTold = false;
+    this.waitTold = 0;
   }
 
   private setPlayerView(id: string) {
@@ -332,6 +332,7 @@ export class Game {
         break;
       case 's':
         this.remote?.receive(m.d, m.x, m.y, m.v, this.sinceSent(m.v, m.w));
+        if (m.f !== undefined && this.remote && !this.remote.finished) this.remote.finish(m.f);
         break;
       case 'm':
         this.remote?.move(m.m);
@@ -368,41 +369,44 @@ export class Game {
       return;
     }
     const friend = this.remoteChar ? this.def(this.remoteChar).name : '…';
-    const leave = { leave: () => this.leaveOnline() };
+    const code = `<b class="code">${o.code.toUpperCase()}</b>`;
+    // One compact line: what's going on on the left, a way out (✕) on the right.
+    const line = (status: string, extra = '') =>
+      `<div class="lob-row"><div class="lob-text">${status}</div>${extra}<button class="lob-x" data-act="leave" aria-label="ออกจากห้อง">✕</button></div>`;
     let html: string;
-    let start: string | null = null;
-    let actions: Record<string, () => void> = leave;
+    let start: string;
+    let ready = false;
+    let actions: Record<string, () => void> = { leave: () => this.leaveOnline() };
     if (o.status === 'error' || o.status === 'closed') {
-      html = `<div class="err">${o.status === 'error' ? o.error : 'เพื่อนออกจากห้องแล้ว'}</div>`;
-      html += `<div class="acts"><button data-act="leave">กลับไปเล่นคนเดียว</button></div>`;
+      html = line(`<span class="err">${o.status === 'error' ? o.error : 'เพื่อนออกจากห้องแล้ว'}</span>`);
+      start = 'กด ✕ เพื่อเล่นคนเดียว';
     } else if (o.role === 'host' && !o.connected) {
-      html = `ส่งลิงก์นี้ให้เพื่อน แล้วรอเพื่อนเข้าห้อง<div class="code">${o.code.toUpperCase()}</div>
-        <span class="link">${o.link}</span>
-        <div class="acts"><button data-act="share">📋 คัดลอก/แชร์ลิงก์</button><button data-act="leave">ยกเลิก</button></div>`;
-      actions = { ...leave, share: () => this.shareLink(o) };
+      html = line(`<span>ห้อง ${code}</span><small>ส่งรหัสหรือลิงก์ให้เพื่อน</small>`, '<button class="lob-share" data-act="share">📋 แชร์</button>');
+      actions = { ...actions, share: () => this.shareLink(o) };
+      start = 'รอเพื่อนเข้าห้อง…';
     } else if (o.role === 'host') {
-      html = `<div class="ok">เพื่อนเข้าห้องแล้ว ✓</div>เพื่อนเลือก: <b>${friend}</b>
-        <div class="acts"><button data-act="leave">ออกจากห้อง</button></div>`;
+      html = line(`<span class="ok">✓ เพื่อนเข้าห้องแล้ว</span><small>เพื่อนเลือก <b>${friend}</b></small>`);
       start = 'เริ่มแข่ง!';
+      ready = true;
     } else if (!o.connected) {
-      html = `กำลังเข้าห้อง <b>${o.code.toUpperCase()}</b>…<div class="acts"><button data-act="leave">ยกเลิก</button></div>`;
+      html = line(`<span>กำลังเข้าห้อง ${code}…</span>`);
+      start = 'กำลังเชื่อมต่อ…';
     } else {
-      html = `<div class="ok">เข้าห้องแล้ว ✓</div>เจ้าห้องเลือก: <b>${friend}</b><br>เลือกตัวละคร แล้วรอเจ้าห้องกดเริ่ม
-        <div class="acts"><button data-act="leave">ออกจากห้อง</button></div>`;
+      html = line(`<span class="ok">✓ เข้าห้อง ${code} แล้ว</span><small>เจ้าห้องเลือก <b>${friend}</b></small>`);
+      start = 'รอเจ้าห้องกดเริ่ม…';
     }
-    this.hud.setLobby({ html, start, actions });
+    this.hud.setLobby({ html, start, ready, guest: o.role === 'guest', actions });
   }
 
   /** Play with a friend: open a new room, or type in the code of theirs. */
   private showJoin(error = '', typed = '') {
-    const html = `<button class="host-btn" data-act="host">🏠 สร้างห้องใหม่</button>
-      <div class="or">หรือกรอกรหัสห้องของเพื่อน</div>
-      <div class="join-row"><input class="room-code" maxlength="40" placeholder="รหัส 5 ตัว" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="join-btn" data-act="join">เข้าห้อง</button></div>
-      ${error ? `<div class="err">${error}</div>` : ''}
-      <div class="acts"><button data-act="cancel">ยกเลิก</button></div>`;
+    const html = `<div class="lob-row"><button class="host-btn" data-act="host">🏠 สร้างห้อง</button><button class="lob-x" data-act="cancel" aria-label="ยกเลิก">✕</button></div>
+      <div class="join-row"><input class="room-code" maxlength="40" placeholder="หรือกรอกรหัสห้องเพื่อน" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="join-btn" data-act="join">เข้า</button></div>
+      ${error ? `<div class="err">${error}</div>` : ''}`;
     this.hud.setLobby({
       html,
       start: 'เริ่มแข่งคนเดียว',
+      ready: true,
       actions: {
         host: () => { this.joining = false; this.connect(Online.host()); },
         join: () => this.joinTyped(),
@@ -455,6 +459,7 @@ export class Game {
     this.setPlayerView(this.selected);
     this.remote = null;
     this.startPath = [];
+    this.tapItemAt = -1;
     if (online) {
       // Host in box 1 (merging left), guest in box 2 (merging to the middle).
       const mine = online.role === 'host' ? [0, -1] : [1, 0];
@@ -558,6 +563,29 @@ export class Game {
   /** Online: the player's distance at each tick since the gun (for `sinceSent`). */
   private startPath: number[] = [];
 
+  /** A single tap that may yet become a dash: the race time it turns into using the item. */
+  private tapItemAt = -1;
+
+  /**
+   * A tap uses the held item, unless it is the first half of a double-tap dash.
+   * Only when a dash is ready is there anything to tell apart, so only then does
+   * the item wait a moment for a second tap.
+   */
+  private takeTaps(actions: Action[]) {
+    const p = this.player;
+    const out: Action[] = actions.filter((a) => a !== 'tap');
+    if (out.includes('dash')) this.tapItemAt = -1;
+    else if (actions.includes('tap')) {
+      if (p.dashReady) this.tapItemAt = this.t + DOUBLE_GAP / 1000;
+      else out.push('item');
+    }
+    if (this.tapItemAt >= 0 && this.t >= this.tapItemAt) {
+      this.tapItemAt = -1;
+      out.push('item');
+    }
+    return out;
+  }
+
   /** Online: the shared-clock moment (ms) the game's race time stands for (a frame catching up runs behind now). */
   private raceWall() {
     return this.startAt !== null ? this.gunWall + this.t * 1000 : this.online!.now();
@@ -614,7 +642,7 @@ export class Game {
 
     this.t += dt;
     const p = this.player;
-    const actions = this.input.drain();
+    const actions = this.takeTaps(this.input.drain());
     if (!p.launched) {
       // Same start for everyone; lane changes pressed on the launch frame still count.
       if (this.gunT >= LAUNCH_AT) {
@@ -633,7 +661,10 @@ export class Game {
     p.events.length = 0;
 
     if (this.online?.connected && this.remote && ++this.sendTick % 3 === 0) {
-      this.online.send({ t: 's', d: +p.d.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), v: +p.speed.toFixed(2), w: Math.round(this.raceWall()) });
+      // The finish time rides along on every packet too: a lone 'fin' lost on a flaky
+      // connection would leave the friend waiting for us forever.
+      this.online.send({ t: 's', d: +p.d.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), v: +p.speed.toFixed(2), w: Math.round(this.raceWall()),
+        ...(p.finished ? { f: p.finishTime } : {}) });
     }
 
     for (const r of this.rivals) {
@@ -668,11 +699,17 @@ export class Game {
       this.doneT += dt;
       if (waiting) {
         this.settleT = 0;
-        if (!this.waitTold && this.doneT > 2.2) {
-          this.waitTold = true;
-          this.hud.flash(`รอทุกคนเข้าเส้นชัย… (อีก ${waiting} คน)`, 'good', 2.5);
+        if (this.waitTold !== waiting && this.doneT > 2.2) {
+          this.waitTold = waiting;
+          this.hud.flash(`รอทุกคนเข้าเส้นชัย… (อีก ${waiting} คน)`, 'good', 60);
         }
-      } else this.settleT += dt;
+      } else {
+        // Don't leave "waiting for 1" up once they're all in (or the friend has gone).
+        if (this.waitTold && this.rivals.every((r) => r.sim.finished)) this.hud.flash('ทุกคนเข้าเส้นชัยแล้ว!', 'good', 1.5);
+        else if (this.waitTold) this.hud.unflash();
+        this.waitTold = 0;
+        this.settleT += dt;
+      }
       // Everyone has crossed; give the last one a moment to pull up.
       if (this.doneT > 3 && this.settleT > 2) {
         this.state = 'results';
@@ -814,7 +851,6 @@ export class Game {
   }
 
   /** Runners through item boxes (a friend online collects on their own screen). */
-  private fullWarned = -1;
   /** The player has used an item at least once (stops the how-to hint). */
   private usedItem = false;
 
@@ -829,14 +865,7 @@ export class Game {
         if (s.took.has(box.id) || !touches(box, s.x, s.y, s.d)) continue;
         // Further back = better odds of a boost; ink only with someone to hit.
         const ahead = all.filter((o) => o !== s && o.d > s.d).length;
-        if (!s.give(rollItem(Math.random(), ahead / Math.max(1, all.length - 1), ahead > 0))) {
-          // Say why the box didn't give anything (once per box).
-          if (s === this.player && this.fullWarned !== box.id) {
-            this.fullWarned = box.id;
-            this.hud.flash(desktop ? 'ถือไอเท็มได้ทีละชิ้น! กด Q ใช้ก่อน' : 'ถือไอเท็มได้ทีละชิ้น! แตะไอเท็มบนหัวใช้ก่อน');
-          }
-          continue;
-        }
+        if (!s.give(rollItem(Math.random(), ahead / Math.max(1, all.length - 1), ahead > 0))) continue;
         s.took.add(box.id);
         this.debris.burst(laneX(box.lane), ITEM.boxY, box.d, BOX_COLORS, s === this.player ? 14 : 6, 0.6, s.speed * 0.6);
       }
@@ -965,7 +994,7 @@ export class Game {
         sound.pickup();
         this.juice.pickup(this.player);
         // Until they've used one, remind them how.
-        this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะที่ไอเท็มบนหัวเพื่อใช้', 'good');
+        this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะจอเพื่อใช้', 'good');
         break;
       case 'item': {
         const p = this.player;

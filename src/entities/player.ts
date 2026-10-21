@@ -72,7 +72,7 @@ export class Player {
   private dirtyRows = new Set<number>();
   private nearIndex = 0;
   events: PlayerEvent[] = [];
-  /** Held items, used first-in first-out (up to ITEM.max); a new one spins in the slot for `itemRoll`. */
+  /** The held item (one at a time); a new one spins in the slot for `itemRoll`. */
   items: ItemKind[] = [];
   itemRoll = 0;
   itemBoostT = 0;
@@ -102,10 +102,6 @@ export class Player {
     return this.items[0] ?? null;
   }
 
-  get itemsFull() {
-    return this.items.length >= ITEM.max;
-  }
-
   get flying() {
     return this.flyT > 0;
   }
@@ -114,12 +110,11 @@ export class Player {
     return !!this.item && this.itemRoll <= 0 && this.launched && !this.finished && !this.stunned;
   }
 
-  /** Ran through an item box; false if the slots are full (the box stays). */
+  /** Ran through an item box: a new roll, replacing whatever was held (it spins again). */
   give(item: ItemKind) {
-    if (this.itemsFull || this.finished) return false;
-    this.items.push(item);
-    // Only an empty slot spins: an item already held stays ready to use.
-    if (this.items.length === 1) this.itemRoll = ITEM.roll;
+    if (this.finished) return false;
+    this.items = [item];
+    this.itemRoll = ITEM.roll;
     this.emit({ type: 'pickup', item });
     return true;
   }

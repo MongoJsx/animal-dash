@@ -95,7 +95,7 @@ if (!rivalUses) fail('rivals never used an item');
 console.log(`race: player picked ${pickups}, used`, used, `shield blocks ${blocks}; rivals picked ${rivalPickups}, used ${rivalUses}`);
 
 // ── A player who never presses the item button ────────────────────────
-// Collects up to ITEM.max, then boxes say "full" instead of silently doing nothing.
+// Every box they run through gives a fresh roll, replacing the one held.
 {
   const track = buildTrack(3, 'thai');
   const p = new Player();
@@ -113,8 +113,8 @@ console.log(`race: player picked ${pickups}, used`, used, `shield blocks ${block
     }
     if (p.d > 2000) p.finish(t);
   }
-  if (got !== ITEM.max || p.items.length !== ITEM.max) fail(`a player who never uses items holds ${p.items.length} (got ${got}), expected ${ITEM.max}`);
-  console.log(`never-using player: holds ${p.items.length} items`);
+  if (got < 2 || p.items.length !== 1) fail(`a player who never uses items holds ${p.items.length} after ${got} boxes, expected 1 (each box replacing the last)`);
+  console.log(`never-using player: took ${got} boxes, holds ${p.items.length}`);
 }
 
 if (failures) {

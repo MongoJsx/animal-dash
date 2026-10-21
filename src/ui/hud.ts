@@ -53,7 +53,7 @@ export class Hud {
   private dashBar: HTMLElement;
   private dashFill = -1;
   private dashState = '';
-  /** The held item, over the runner's head: tap it to use it. */
+  /** The held item, over the runner's head (a tap anywhere uses it). */
   private itemBtn: HTMLButtonElement;
   private itemIcon: HTMLElement;
   private itemCount: HTMLElement;
@@ -89,7 +89,7 @@ export class Hud {
     this.sub = el('div', 'big-sub', this.root);
     // Dash meter up the left edge; full, it says how to fire it, written along the bar.
     this.dashBar = el('div', 'dash-bar', this.race, `<div class="dash-fill"></div><span class="dash-text">${desktop ? 'SHIFT · DASH' : 'DOUBLE TAP'}</span><b class="dash-ico">⚡</b>`);
-    // Input reads a tap on it as 'item' (a swipe that starts on it is still a swipe).
+    // Just a sign: a tap anywhere uses it.
     this.itemBtn = el('button', 'head-item', this.race, '<i class="ring"></i><i class="ring"></i><i class="ring"></i><span class="item-icon"></span>');
     this.itemBtn.setAttribute('aria-label', 'ใช้ไอเท็ม');
     this.itemIcon = this.itemBtn.querySelector<HTMLElement>('.item-icon')!;
@@ -100,6 +100,7 @@ export class Hud {
     this.zone = el('div', 'zone-title', this.root);
     this.menu = el('div', 'menu hidden', this.root);
     this.results = el('div', 'results hidden', this.root);
+    addEventListener('resize', () => this.placeArrows());
   }
 
   showMenu(chars: CharacterDef[], selected: string, onPick: (id: string) => void, onStart: () => void, onOnline: () => void,
@@ -111,7 +112,7 @@ export class Hud {
     this.inkBox.classList.remove('show');
     const controls = desktop
       ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช'], ['Q', 'ใช้ไอเท็ม']]
-      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['แตะ 2 ครั้ง', 'แดช (เกจซ้ายเต็ม)'], ['แตะไอเท็มบนหัว', 'ใช้ไอเท็ม']];
+      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['แตะ 2 ครั้ง', 'แดช (เกจซ้ายล่างเต็ม)'], ['แตะ 1 ครั้ง', 'ใช้ไอเท็ม']];
     this.menu.innerHTML = `
       <div class="menu-top">
         <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">วิ่งซิ่งข้ามโลก</span></div>
@@ -184,22 +185,39 @@ export class Hud {
     mute.onclick = () => { mute.textContent = sound.toggleMute() ? '🔇' : '🔊'; };
     this.menu.querySelector<HTMLButtonElement>('.start')!.onclick = onStart;
     this.menu.querySelector<HTMLButtonElement>('.online-btn')!.onclick = onOnline;
+    this.placeArrows();
   }
 
-  /** Online room panel on the menu; `null` hides it and restores solo play. */
-  setLobby(lobby: { html: string; start: string | null; actions: Record<string, () => void> } | null) {
+  /**
+   * Online room panel on the menu; `null` hides it and restores solo play.
+   * @param lobby.start the big button's label; `ready` whether it can be pressed
+   * @param lobby.guest the host picks the map, so a guest doesn't see the picker
+   */
+  setLobby(lobby: { html: string; start: string; ready: boolean; guest?: boolean; actions: Record<string, () => void> } | null) {
     const box = this.menu.querySelector<HTMLElement>('.lobby');
     const start = this.menu.querySelector<HTMLButtonElement>('.start');
     const onlineBtn = this.menu.querySelector<HTMLButtonElement>('.online-btn');
     if (!box || !start || !onlineBtn) return;
     box.classList.toggle('hidden', !lobby);
     onlineBtn.classList.toggle('hidden', !!lobby);
-    start.querySelector('.start-label')!.textContent = lobby ? (lobby.start ?? 'รอเจ้าห้อง…') : 'เริ่มแข่ง';
-    start.disabled = !!lobby && lobby.start === null;
+    start.querySelector('.start-label')!.textContent = lobby ? lobby.start : 'เริ่มแข่ง';
+    start.disabled = !!lobby && !lobby.ready;
+    this.menu.classList.toggle('guest', !!lobby?.guest);
     box.innerHTML = lobby?.html ?? '';
     for (const [name, fn] of Object.entries(lobby?.actions ?? {})) {
       box.querySelectorAll<HTMLElement>(`[data-act="${name}"]`).forEach((b) => { b.onclick = fn; });
     }
+    this.placeArrows();
+  }
+
+  /** The character arrows sit in the clear space between the logo and the panel, whatever the panel's height. */
+  placeArrows() {
+    const top = this.menu.querySelector<HTMLElement>('.menu-top');
+    const panel = this.menu.querySelector<HTMLElement>('.panel');
+    if (!top || !panel) return;
+    // The "choose a runner" chip pokes out above the panel.
+    const mid = (top.offsetTop + top.offsetHeight + panel.offsetTop - 22) / 2;
+    this.menu.style.setProperty('--arrow-y', `${Math.round(mid)}px`);
   }
 
   startRace(racers: Racer[]) {
@@ -328,6 +346,11 @@ export class Hud {
     this.toast.textContent = text;
     this.toast.className = `toast show ${kind}`;
     this.toastTimer = time;
+  }
+
+  unflash() {
+    this.toast.classList.remove('show');
+    this.toastTimer = 0;
   }
 
   hit() {

@@ -273,9 +273,9 @@ export class Rival {
     this.slideT = Math.max(0, this.slideT - dt);
   }
 
-  /** Ran through an item box; false if already holding one. */
+  /** Ran through an item box: a new roll, replacing whatever was held. */
   give(item: ItemKind) {
-    if (this.item || this.finished) return false;
+    if (this.finished) return false;
     this.item = item;
     this.useAt = ITEM.roll + this.rng.range(0.3, 1.5);
     return true;

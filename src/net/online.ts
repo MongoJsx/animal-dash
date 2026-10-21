@@ -21,7 +21,7 @@ export type NetMsg =
   | { t: 'char'; id: string }
   | { t: 'start'; seed: number; map?: string; at?: number } // at: host clock (ms) when the start sequence begins
   | { t: 'again' }
-  | { t: 's'; d: number; x: number; y: number; v: number; w?: number } // w: host clock (ms) when sent
+  | { t: 's'; d: number; x: number; y: number; v: number; w?: number; f?: number } // w: host clock (ms) when sent; f: my finish time, once over the line
   | { t: 'm'; m: NetMove }
   | { t: 'fin'; time: number }
   | { t: 'ink' } // you were ahead of me when I used ink
@@ -173,7 +173,9 @@ export class Online {
   }
 
   private post(w: Wire, qos: 0 | 1 = 0) {
-    if (this.client.connected) this.client.publish(this.topic(this.role), JSON.stringify({ ...w, from: this.me }), { qos });
+    // Lossy state goes only while connected; the rest (finish, items, …) is queued
+    // through a reconnect by the client rather than dropped.
+    if (this.client.connected || qos === 1) this.client.publish(this.topic(this.role), JSON.stringify({ ...w, from: this.me }), { qos });
   }
 
   private set(s: NetStatus) {

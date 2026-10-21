@@ -82,8 +82,6 @@ const PATTERNS: Pattern[] = [
       const [a, b] = others(r, 2);
       return [{ kind: 'rolling', lane: a, length: 1.2, speed: 5 }, { kind: 'rolling', lane: b, at: 12, length: 1.2, speed: 5 }];
     } },
-  { id: 'gap', tier: 2, weight: 2, main: 'gap',
-    build: (r) => [{ kind: 'gap', length: r.range(3.5, 5) }] },
   { id: 'slow-lanes', tier: 2, weight: 1.5, main: 'slow',
     build: (r) => {
       const [a, b, c] = others(r, 3);
@@ -116,8 +114,9 @@ const PATTERNS: Pattern[] = [
     build: (r) => [{ kind: 'sweeper', length: 7.4, period: r.range(2.2, 2.8), phase: r.next() }] },
 
   // ── Tier 4: combos ───────────────────────────────────────────────────
-  { id: 'gap-then-slide', tier: 4, weight: 2, main: 'gap',
-    build: () => [{ kind: 'gap', length: 4 }, ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 14 }))] },
+  // No pits across the track: on dark ground they read as two odd lines, not a hole.
+  { id: 'jump-then-slide', tier: 4, weight: 2, main: 'lowbar',
+    build: () => [...LANES.map((lane): Part => ({ kind: 'lowbar', lane })), ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 14 }))] },
   { id: 'gauntlet', tier: 4, weight: 2, main: 'wall',
     build: (r) => {
       const [a, b] = others(r, 2);

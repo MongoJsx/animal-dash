@@ -73,7 +73,6 @@ export const DASH = { full: 100, perMeter: 0.3, perHit: 34, perBump: 8, time: 1.
  * - rocket: fly above everything for 10 s, then drop back down and run on
  */
 export const ITEM = {
-  max: 1, // items the player can hold at once
   roll: 0.6, // item slot spins this long before it can be used
   boxY: 1.15, // box centre height
   boostMul: 1.35,
