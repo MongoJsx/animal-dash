@@ -1,7 +1,7 @@
 // Ties simulation, rendering and UI together: menu → countdown → race → results.
 import * as THREE from 'three';
 import { DASH, ITEM, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
-import { sound } from './core/audio.ts';
+import { COUNTDOWN_GO, sound } from './core/audio.ts';
 import { Input } from './core/input.ts';
 import { Rng } from './core/rng.ts';
 import { botActions } from './entities/bot.ts';
@@ -42,8 +42,11 @@ const PLAYER_SLOT = 0;
 const RIVAL_SLOTS: [slot: number, lane: number][] = [[1, 0], [2, 1], [3, 1]];
 const airTime = (v: number) => (2 * v) / PLAYER.gravity;
 
-// Start sequence: "On your marks" → "Set" (held a varying time) → gun.
-const MARKS_TIME = 1.7;
+// Start sequence: "On your marks", then the 3-2-1 count (a beep a second, the
+// clip starting at COUNT_AT); "set" on the 1 and the gun on its "GO".
+const COUNT_AT = 0.4;
+const GO_AT = COUNT_AT + COUNTDOWN_GO;
+const MARKS_TIME = GO_AT - 1;
 const LAUNCH_AT = 0.4; // everyone leaves the blocks together, this long after the gun
 const BURST_TIME = 1.25;
 const START_LEAD = 1.2; // online: the start sequence begins this long after the host presses start
@@ -87,7 +90,9 @@ export class Game {
   private rivals: RivalEntry[] = [];
   private t = 0;
   private countdownT = 0; // time since the start sequence began
-  private goAt = 3; // when the gun fires
+  private goAt = GO_AT; // when the gun fires
+  private beat = 0; // count shown so far (1 = "3" … 3 = "1")
+  private countPlayed = false;
   /** Online: the host's clock (ms) when the start sequence began (null offline). */
   private startAt: number | null = null;
   /** Online: the host's clock (ms) at the gun, for finish times both sides agree on. */
@@ -325,8 +330,8 @@ export class Game {
   }
 
   private onStartPressed() {
-    if (!this.online) { this.joining = false; this.startRace(); }
-    else if (this.online.role === 'host' && this.online.connected) this.startRace();
+    if (!this.online) { this.joining = false; sound.click(); this.startRace(); }
+    else if (this.online.role === 'host' && this.online.connected) { sound.click(); this.startRace(); }
   }
 
   private updateLobby() {
@@ -454,8 +459,9 @@ export class Game {
     this.countdownT = 0;
     this.phase = 'marks';
     this.gunT = -1;
-    // The starter holds "set" for a different time every race (same for both players online).
-    this.goAt = MARKS_TIME + 1.1 + new Rng(seed ^ 0x9e3779b9).range(0, 0.9);
+    this.goAt = GO_AT;
+    this.beat = 0;
+    this.countPlayed = false;
     this.playerView!.play('marks');
     for (const r of this.rivals) r.view.play('marks');
     this.hud.countdown('เข้าที่', 'ON YOUR MARKS');
@@ -512,11 +518,18 @@ export class Game {
       if (this.startAt !== null && o) this.countdownT = Math.max(0, (o.now() - this.startAt) / 1000);
       else this.countdownT += dt;
       this.input.drain(); // nothing to press in the blocks
+      const into = this.countdownT - COUNT_AT;
+      // Joined late (or the clip only just loaded): start it part-way, so "GO" still lands on the gun.
+      if (!this.countPlayed && into >= 0) this.countPlayed = sound.play('countdown', into) || into > COUNTDOWN_GO;
+      // 3, 2, 1 with the beeps.
+      if (this.beat < 3 && into >= this.beat && this.countdownT < this.goAt) {
+        this.beat = Math.min(3, Math.floor(into) + 1);
+        this.hud.countdown(`${4 - this.beat}`, this.beat < 3 ? 'ON YOUR MARKS' : 'SET');
+      }
       if (this.phase === 'marks' && this.countdownT >= MARKS_TIME) {
         this.phase = 'set';
         this.playerView?.play('set');
         for (const r of this.rivals) r.view.play('set');
-        this.hud.countdown('ระวัง…', 'SET');
       }
       if (this.countdownT >= this.goAt) {
         this.state = 'race';
@@ -885,7 +898,7 @@ export class Game {
         const place = 1 + this.rivals.filter((r) => r.sim.finished || (r.sim instanceof Remote && r.sim.d >= RACE_LENGTH)).length;
         // Run it out first; the pose comes once they've slowed (see render).
         this.endPose = place === 1 ? 'victory' : 'defeat';
-        sound.finish(place === 1);
+        sound.play('finish');
         this.playerLock = 99;
         this.hud.flash(place === 1 ? 'เข้าเส้นชัยที่ 1!' : `เข้าเส้นชัยที่ ${place}`, 'good');
         break;

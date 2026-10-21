@@ -22,3 +22,17 @@ Sketchfab models used in the game (CC-BY requires this attribution).
 | Treasure Chest Mimic | SketchPunk | CC Attribution | https://sketchfab.com/3d-models/26277bbbc99840d59fa6e405b557a797 | shifter |
 | Ultimate Platformer Pack (100+ Models) | quaternius | CC Attribution | https://sketchfab.com/3d-models/8e016bc1b79f4c6aa58d430daa299f1e | lowbar, wall, hay, shifter, pendulumHead, spikes, drop, bounce, rolling, scenery |
 | Zombie Apocalypse Kit [Free] | quaternius | CC Attribution | https://sketchfab.com/3d-models/b0806eaea83f49a592f7e9a039f7c385 | trainCar |
+
+## Sounds
+
+From Pixabay (Pixabay Content License: free to use, no attribution required; credited anyway).
+
+| Sound | Author | Source | Used as |
+|---|---|---|---|
+| 321 Go – 8-bit video game sound (version 1) | make_more_sound | Pixabay sound effect #145007 | `sounds/countdown.mp3`: the 3-2-1-go before the gun |
+| Game Over – deep male voice clip | Universfield | Pixabay sound effect #352695 | `sounds/finish.mp3`: crossing the finish line |
+| Thud sound effect | Dragon Studio | Pixabay sound effect #405470 | `sounds/thud.mp3`: stumbling or getting knocked down |
+| Jingle Bells | jonasblakewood | Pixabay music #593974 | `sounds/menu.mp3`: menu music (looped) |
+| Menu click | freesound_community | Pixabay sound effect #89198 | `sounds/click.mp3`: pressing start |
+
+The item pickup and falling-in-a-hole sounds are synthesized in code (`src/core/audio.ts`).

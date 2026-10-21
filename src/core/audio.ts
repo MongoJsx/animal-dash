@@ -1,20 +1,25 @@
-// Sound effects and the menu tune, all synthesized with Web Audio (nothing to
-// download). Browsers only allow sound after the first tap or key press, so the
-// audio context is made then, and the tune starts if the menu is still up.
+// Sound: recorded clips (the 3-2-1-go count, stumble thud, finish voice and the
+// menu music) plus a couple of effects synthesized with Web Audio. Browsers
+// only allow sound after the first tap or key press, so the audio context is
+// made then, and the music starts if the menu is still up.
+import { assetUrl } from './asset.ts';
+
+const CLIPS = {
+  countdown: '/assets/sounds/countdown.mp3',
+  finish: '/assets/sounds/finish.mp3',
+  thud: '/assets/sounds/thud.mp3',
+  menu: '/assets/sounds/menu.mp3',
+  click: '/assets/sounds/click.mp3',
+};
+export type Clip = keyof typeof CLIPS;
+/** In the countdown clip: beeps at 0, 1 and 2 s, "GO" at this time. */
+export const COUNTDOWN_GO = 3;
+// The thud's hit comes after a short silence, then rumbles for 3 s: take the hit, fade the rest.
+const THUD = { from: 0.28, length: 1 };
+// The music's sound runs this span of the file: loop it without the silent ends.
+const MENU_LOOP = [0.03, 28.92];
 
 const midi = (n: number) => 440 * 2 ** ((n - 69) / 12);
-
-// Menu tune: four bars of eighth notes over C – Am – F – G (0 = rest).
-const TEMPO = 132;
-const STEP = 60 / TEMPO / 2;
-const MELODY = [
-  76, 0, 79, 76, 72, 74, 76, 0,
-  76, 0, 72, 69, 72, 0, 76, 74,
-  72, 0, 77, 72, 69, 72, 77, 79,
-  79, 0, 77, 76, 74, 0, 71, 74,
-];
-const ROOTS = [48, 45, 41, 43];
-const BASS = [0, 7, 12, 7]; // on the beats: root, fifth, octave, fifth
 
 class Sound {
   muted = false;
@@ -24,12 +29,16 @@ class Sound {
   private music!: GainNode;
   private noise!: AudioBuffer;
   private wantMusic = false;
-  private timer = 0;
-  private nextAt = 0;
-  private step = 0;
+  private musicSrc: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  /** Clip files, fetched at once; decoded once there's a context. */
+  private files = new Map<Clip, Promise<ArrayBuffer>>();
+  private clips = new Map<Clip, AudioBuffer>();
 
   constructor() {
     try { this.muted = localStorage.getItem('muted') === '1'; } catch { /* private mode */ }
+    for (const [name, url] of Object.entries(CLIPS) as [Clip, string][]) {
+      this.files.set(name, fetch(assetUrl(url)).then((r) => r.arrayBuffer()));
+    }
     // Kept for good: iOS suspends the context again after calls and the like.
     for (const ev of ['pointerdown', 'keydown', 'touchend']) addEventListener(ev, () => this.unlock(), { capture: true });
   }
@@ -46,15 +55,21 @@ class Sound {
       this.sfx = ctx.createGain();
       this.sfx.gain.value = 0.9;
       this.music = ctx.createGain();
-      this.music.gain.value = 0.45;
+      this.music.gain.value = 0.5;
       this.sfx.connect(this.master);
       this.music.connect(this.master);
       this.noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
       const data = this.noise.getChannelData(0);
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      for (const [name, file] of this.files) {
+        file.then((b) => ctx.decodeAudioData(b)).then((buf) => {
+          this.clips.set(name, buf);
+          if (name === 'menu' && this.wantMusic) this.startMusic();
+        }, () => {});
+      }
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
-    if (this.wantMusic) this.startLoop();
+    if (this.wantMusic) this.startMusic();
   }
 
   toggleMute() {
@@ -69,7 +84,7 @@ class Sound {
     return this.ctx && this.ctx.state === 'running' && !this.muted ? this.ctx.currentTime : null;
   }
 
-  private tone(f: number, at: number, dur: number, type: OscillatorType = 'square', vol = 0.2, to = 0, out = this.sfx) {
+  private tone(f: number, at: number, dur: number, type: OscillatorType = 'square', vol = 0.2, to = 0) {
     const ctx = this.ctx!;
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.type = type;
@@ -78,21 +93,21 @@ class Sound {
     g.gain.setValueAtTime(0.0001, at);
     g.gain.exponentialRampToValueAtTime(vol, at + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    o.connect(g).connect(out);
+    o.connect(g).connect(this.sfx);
     o.start(at);
     o.stop(at + dur + 0.02);
   }
 
-  /** A burst of filtered noise (thuds, hi-hats, crowd). */
-  private hiss(at: number, dur: number, vol: number, freq: number, filter: BiquadFilterType = 'lowpass', out = this.sfx) {
+  /** A burst of filtered noise. */
+  private hiss(at: number, dur: number, vol: number, freq: number) {
     const ctx = this.ctx!;
     const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
     src.buffer = this.noise;
-    f.type = filter;
+    f.type = 'lowpass';
     f.frequency.value = freq;
     g.gain.setValueAtTime(vol, at);
     g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    src.connect(f).connect(g).connect(out);
+    src.connect(f).connect(g).connect(this.sfx);
     src.start(at, Math.random() * 0.5);
     src.stop(at + dur + 0.02);
   }
@@ -106,13 +121,17 @@ class Sound {
     this.tone(midi(103), t + 0.22, 0.25, 'sine', 0.07);
   }
 
-  /** Tripped over something: a thud and a wobbly drop. */
+  /**
+   * Pressed start. The press may be the page's first tap, which is what makes
+   * the audio context, so the clip may still be decoding: try for a moment.
+   */
+  click(tries = 8) {
+    if (!this.play('click') && tries > 0) setTimeout(() => this.click(tries - 1), 40);
+  }
+
+  /** Tripped over something or knocked down: the thud. */
   stumble() {
-    const t = this.now();
-    if (t === null) return;
-    this.hiss(t, 0.18, 0.5, 600);
-    this.tone(160, t, 0.2, 'sine', 0.35, 45);
-    this.tone(520, t + 0.05, 0.28, 'triangle', 0.1, 220);
+    this.play('thud', THUD.from, THUD.length);
   }
 
   /** Down a hole: a falling slide whistle, then the landing. */
@@ -124,51 +143,58 @@ class Sound {
     this.tone(120, t + 0.45, 0.22, 'sine', 0.35, 40);
   }
 
-  /** Over the line: a fanfare (a bigger one for first place) and a cheer. */
-  finish(win: boolean) {
-    const t = this.now();
-    if (t === null) return;
-    const notes = win ? [67, 72, 76, 79, 84] : [67, 72, 76];
-    notes.forEach((n, i) => this.tone(midi(n), t + i * 0.12, 0.2, 'square', 0.1));
-    const end = t + notes.length * 0.12;
-    for (const n of win ? [72, 76, 79, 84] : [72, 76, 79]) this.tone(midi(n), end, win ? 1.1 : 0.7, 'triangle', 0.09);
-    this.hiss(end, win ? 1.8 : 1.1, 0.12, 1800, 'bandpass');
+  /**
+   * Play a recorded clip, `from` seconds into it (to catch up when it starts
+   * late), faded out after `length` s if given. False if it isn't loaded yet,
+   * so the caller can try again.
+   */
+  play(name: Clip, from = 0, length = 0) {
+    const ctx = this.ctx, buf = this.clips.get(name);
+    if (!ctx || !buf || ctx.state !== 'running') return false;
+    if (this.muted || from >= buf.duration) return true;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf;
+    src.connect(g).connect(this.sfx);
+    const t = ctx.currentTime;
+    if (length) {
+      g.gain.setValueAtTime(1, t + length * 0.6);
+      g.gain.linearRampToValueAtTime(0, t + length);
+      src.stop(t + length + 0.05);
+    }
+    src.start(t, Math.max(0, from));
+    return true;
   }
 
-  // ── Menu tune ──────────────────────────────────────────────────────
+  // ── Menu music ─────────────────────────────────────────────────────
   menuMusic(on: boolean) {
     this.wantMusic = on;
-    if (on && this.ctx) this.startLoop();
-    else if (!on) this.stopLoop();
+    if (on) this.startMusic();
+    else this.stopMusic();
   }
 
-  private startLoop() {
-    if (this.timer || !this.ctx) return;
-    this.step = 0;
-    this.nextAt = this.ctx.currentTime + 0.1;
-    this.timer = window.setInterval(() => this.schedule(), 25);
+  private startMusic() {
+    const ctx = this.ctx, buf = this.clips.get('menu');
+    if (this.musicSrc || !ctx || !buf) return;
+    const src = ctx.createBufferSource(), gain = ctx.createGain();
+    src.buffer = buf;
+    src.loop = true;
+    [src.loopStart, src.loopEnd] = MENU_LOOP;
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.8);
+    src.connect(gain).connect(this.music);
+    src.start(ctx.currentTime, MENU_LOOP[0]);
+    this.musicSrc = { src, gain };
   }
 
-  private stopLoop() {
-    clearInterval(this.timer);
-    this.timer = 0;
-  }
-
-  /** Queue the notes due in the next moment (a timer alone would drift). */
-  private schedule() {
-    const ctx = this.ctx!;
-    // Back from a background tab: pick up from now rather than catch up.
-    if (this.nextAt < ctx.currentTime - 0.2) this.nextAt = ctx.currentTime + 0.05;
-    while (this.nextAt < ctx.currentTime + 0.12) {
-      const i = this.step % MELODY.length, at = this.nextAt;
-      const m = MELODY[i];
-      if (m) this.tone(midi(m), at, STEP * 0.9, 'square', 0.07, 0, this.music);
-      if (i % 2 === 0) this.tone(midi(ROOTS[i >> 3] + BASS[(i >> 1) % 4]), at, STEP * 1.8, 'triangle', 0.16, 0, this.music);
-      if (i % 4 === 0) this.tone(140, at, 0.14, 'sine', 0.22, 45, this.music); // kick
-      else if (i % 2 === 1) this.hiss(at, 0.04, 0.05, 7000, 'highpass', this.music); // hi-hat
-      this.step++;
-      this.nextAt += STEP;
-    }
+  /** Fade the music out quickly (the race is starting). */
+  private stopMusic() {
+    const m = this.musicSrc, ctx = this.ctx;
+    if (!m || !ctx) return;
+    this.musicSrc = null;
+    m.gain.gain.cancelScheduledValues(ctx.currentTime);
+    m.gain.gain.setValueAtTime(m.gain.gain.value, ctx.currentTime);
+    m.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
+    m.src.stop(ctx.currentTime + 0.45);
   }
 }
 
