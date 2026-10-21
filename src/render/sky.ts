@@ -235,6 +235,10 @@ const BACKDROPS: Partial<Record<CountryId | 'fable', Backdrop>> = {
   fable: { url: '/assets/sky/fable-village.jpg', aspect: 1213 / 1024, copies: 6, focus: 0.68, horizon: 0.35, sky: 0x3e90f4, ground: 0x8aa196 },
 };
 const BACKDROP_R = 345;
+// The picture slides round as you run (one copy = 1/copies of the horizon),
+// and drifts a little on its own so it is never quite still.
+const BACKDROP_PAN = 1.2 / 2000; // copies per metre run
+const BACKDROP_DRIFT = 0.006; // copies per second
 const BACKDROP_HORIZON_Y = 30; // the picture's sea line this far above the far ground
 
 function backdropMesh(b: Backdrop) {
@@ -262,6 +266,8 @@ export class Sky {
   private backdrop: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial> | null = null;
   private backdropSky: THREE.Color | null = null;
   private backdropGround: THREE.Color | null = null;
+  private backdropFocus = 0;
+  private time = 0;
 
   constructor(country: CountryId | null, seed: number) {
     this.dome = new THREE.Mesh(
@@ -286,6 +292,7 @@ export class Sky {
       this.backdrop = backdropMesh(b);
       this.backdropSky = new THREE.Color(b.sky);
       this.backdropGround = new THREE.Color(b.ground);
+      this.backdropFocus = this.backdrop.material.map!.offset.x;
       // The far ground runs into the picture: its colour, not fog white (a
       // high camera, like on the Great Wall, sees a lot of it).
       this.floor.material.fog = false;
@@ -298,7 +305,8 @@ export class Sky {
     }
   }
 
-  update(cam: THREE.Vector3, look: Look, groundY: number) {
+  update(cam: THREE.Vector3, look: Look, groundY: number, d: number, dt: number) {
+    this.time += dt;
     this.dome.position.copy(cam);
     this.ring.position.set(cam.x, groundY - 2, cam.z);
     this.floor.position.set(cam.x, groundY, cam.z);
@@ -311,6 +319,7 @@ export class Sky {
     this.floor.material.color.copy(look.side).lerp(look.horizon, 0.25);
     if (this.backdrop) {
       this.backdrop.position.set(cam.x, groundY, cam.z);
+      this.backdrop.material.map!.offset.x = this.backdropFocus + d * BACKDROP_PAN + this.time * BACKDROP_DRIFT;
       // The picture is a sunny day: dim and tint it to the zone's light (dusk, snow).
       const tint = this.backdrop.material.color.copy(look.hemiSky).lerp(_white, 0.3).multiplyScalar(Math.min(1, look.sunI / 2.4) ** 1.6);
       // Above the picture's top edge the dome carries on in its sky blue.

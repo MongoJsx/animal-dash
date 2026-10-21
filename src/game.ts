@@ -13,14 +13,14 @@ import { CharacterView, preloadCharacters, type AnimState, type CharacterDef } f
 import { installBend, setBendPath } from './render/bend.ts';
 import { Debris } from './render/debris.ts';
 import { Environment } from './render/environment.ts';
-import { Bubble, ItemBoxes, RocketPack } from './render/itemView.ts';
+import { Bubble, ItemBoxes, ItemTag, RocketPack } from './render/itemView.ts';
 import { warmUpProps } from './render/props.ts';
 import { ObstacleView } from './render/obstacleView.ts';
 import { Podium } from './render/podium.ts';
 import { Hud, byFinish, desktop, type Racer } from './ui/hud.ts';
 import { BIOMES, MAPS, biomeAt, isMapId, type BiomeId, type MapId } from './world/biomes.ts';
 import { sunDirection } from './render/sky.ts';
-import { ITEM_NAME, rollItem, touches, type ItemKind } from './world/items.ts';
+import { ITEM_ICON, ITEM_NAME, rollItem, touches, type ItemKind } from './world/items.ts';
 import { movingD, type Obstacle } from './world/obstacles.ts';
 import { TrackPath } from './world/path.ts';
 import { buildTrack, type Track } from './world/track.ts';
@@ -45,12 +45,14 @@ const airTime = (v: number) => (2 * v) / PLAYER.gravity;
 const MARKS_TIME = 1.7;
 const LAUNCH_AT = 0.4; // everyone leaves the blocks together, this long after the gun
 const BURST_TIME = 1.25;
+const START_LEAD = 1.2; // online: the start sequence begins this long after the host presses start
 
-interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number; bubble: Bubble; shield: boolean; rocket: RocketPack }
+interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number; bubble: Bubble; shield: boolean; rocket: RocketPack; tag: ItemTag }
 
 const POP_COLORS = [0x7ae0ff, 0xffffff, 0xbdf3ff];
 const INK_COLORS = [0x120c24, 0x2a1f4d, 0x000000];
 const BOX_COLORS = [0xffe066, 0xff9f1c, 0xff5d8f, 0xffffff];
+const ROLL_ICONS = Object.values(ITEM_ICON);
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -62,6 +64,7 @@ export class Game {
   private itemBoxes: ItemBoxes | null = null;
   private playerBubble = new Bubble();
   private playerRocket = new RocketPack();
+  private playerTag = new ItemTag();
   private input: Input;
   private hud: Hud;
   private clock = new THREE.Clock();
@@ -84,11 +87,14 @@ export class Game {
   private t = 0;
   private countdownT = 0; // time since the start sequence began
   private goAt = 3; // when the gun fires
-  /** Wall clock at the gun (ms), for online finish times. */
+  /** Online: the host's clock (ms) when the start sequence began (null offline). */
+  private startAt: number | null = null;
+  /** Online: the host's clock (ms) at the gun, for finish times both sides agree on. */
   private gunWall = 0;
   private phase: 'marks' | 'set' | 'go' = 'marks';
   private gunT = -1; // time since the gun
   private doneT = 0;
+  private settleT = 0; // since the last runner crossed
   private shake = 0;
   private map: MapId = 'thai';
   private zone: BiomeId | null = null;
@@ -96,9 +102,8 @@ export class Game {
   private online: Online | null = null;
   private remoteChar: string | null = null;
   private remote: Remote | null = null;
-  /** Someone has crossed the line; the race clock stops at `overT` for the rest. */
-  private raceOver = false;
-  private overT = 0;
+  /** The player is over the line and was told to wait for the others. */
+  private waitTold = false;
   /** Menu: choosing between a new room and typing in a friend's code. */
   private joining = false;
   private sendTick = 0;
@@ -134,7 +139,7 @@ export class Game {
     this.hud = new Hud(container);
     this.hud.onDash = () => this.input.press('dash');
     this.hud.onItem = () => this.input.press('item');
-    this.scene.add(this.debris.mesh, this.playerBubble.mesh, this.playerRocket.root);
+    this.scene.add(this.debris.mesh, this.playerBubble.mesh, this.playerRocket.root, this.playerTag.sprite);
     addEventListener('keydown', (e) => this.menuKey(e));
 
     addEventListener('resize', () => this.resize());
@@ -205,7 +210,7 @@ export class Game {
       this.scene.remove(this.env.root);
       this.env.dispose();
     }
-    for (const r of this.rivals) this.scene.remove(r.view.root, r.bubble.mesh, r.rocket.root);
+    for (const r of this.rivals) this.scene.remove(r.view.root, r.bubble.mesh, r.rocket.root, r.tag.sprite);
     this.rivals = [];
 
     this.track = buildTrack(seed, this.map);
@@ -224,7 +229,7 @@ export class Game {
     this.player.startSlot(START_SLOTS[PLAYER_SLOT], -1);
     this.t = 0;
     this.zone = null;
-    this.raceOver = false;
+    this.waitTold = false;
   }
 
   private setPlayerView(id: string) {
@@ -287,7 +292,7 @@ export class Game {
       case 'start':
         if (this.online?.role === 'guest') {
           if (isMapId(m.map)) this.map = m.map;
-          this.startRace(m.seed);
+          this.startRace(m.seed, m.at);
         }
         break;
       case 'again':
@@ -310,6 +315,9 @@ export class Game {
         break;
       case 'rk':
         if (this.remote) this.remote.rocket = m.on;
+        break;
+      case 'it':
+        if (this.remote) this.remote.item = m.k;
         break;
     }
   }
@@ -402,11 +410,15 @@ export class Game {
     }
   }
 
-  private startRace(netSeed?: number) {
+  /** @param netAt online: when the start sequence begins, on the host's clock (ms) */
+  private startRace(netSeed?: number, netAt?: number) {
     const params = new URLSearchParams(location.search);
     const seed = netSeed ?? (Number(params.get('seed')) || (Math.random() * 2 ** 31) | 0);
     const online = this.online?.connected ? this.online : null;
-    if (online?.role === 'host') online.send({ t: 'start', seed, map: this.map });
+    // Online both sides run the start off the shared clock: a moment from now,
+    // so the start message has time to reach the guest first.
+    this.startAt = online ? netAt ?? online.now() + START_LEAD * 1000 : null;
+    if (online?.role === 'host') online.send({ t: 'start', seed, map: this.map, at: this.startAt! });
     this.reset(seed);
     this.setPlayerView(this.selected);
     this.remote = null;
@@ -418,9 +430,9 @@ export class Game {
       const def = this.def(this.remoteChar ?? this.chars[0].id);
       this.remote = new Remote(START_SLOTS[theirs]);
       const view = new CharacterView(def, { castShadow: false });
-      const bubble = new Bubble(), rocket = new RocketPack();
-      this.scene.add(view.root, bubble.mesh, rocket.root);
-      this.rivals.push({ sim: this.remote, view, def, lock: 0, moveIndex: 0, bubble, shield: false, rocket });
+      const bubble = new Bubble(), rocket = new RocketPack(), tag = new ItemTag();
+      this.scene.add(view.root, bubble.mesh, rocket.root, tag.sprite);
+      this.rivals.push({ sim: this.remote, view, def, lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
     } else {
       const rng = new Rng(seed ^ 0x5bd1e995);
       const pool = rng.shuffle(this.chars.filter((c) => c.id !== this.selected));
@@ -429,9 +441,9 @@ export class Game {
         const sim = new Rival(seed + i * 101, SKILLS[i], START_SLOTS[slot], lane);
         // Rivals use a cheap blob shadow: four shadow-casting characters cost ~60k tris.
         const view = new CharacterView(pool[i], { castShadow: false });
-        const bubble = new Bubble(), rocket = new RocketPack();
-        this.scene.add(view.root, bubble.mesh, rocket.root);
-        this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0, bubble, shield: false, rocket });
+        const bubble = new Bubble(), rocket = new RocketPack(), tag = new ItemTag();
+        this.scene.add(view.root, bubble.mesh, rocket.root, tag.sprite);
+        this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
       }
     }
     this.hud.startRace(this.racers());
@@ -492,7 +504,10 @@ export class Game {
 
   private step(dt: number) {
     if (this.state === 'countdown') {
-      this.countdownT += dt;
+      // Online the shared clock drives the start, so both guns fire together.
+      const o = this.online;
+      if (this.startAt !== null && o) this.countdownT = Math.max(0, (o.now() - this.startAt) / 1000);
+      else this.countdownT += dt;
       this.input.drain(); // nothing to press in the blocks
       if (this.phase === 'marks' && this.countdownT >= MARKS_TIME) {
         this.phase = 'set';
@@ -504,7 +519,7 @@ export class Game {
         this.state = 'race';
         this.phase = 'go';
         this.gunT = 0;
-        this.gunWall = performance.now();
+        if (this.startAt !== null) this.gunWall = this.startAt + this.goAt * 1000;
         this.shake = 0.12;
         this.hud.countdown('ปัง! ไป!', 'GO');
       }
@@ -552,36 +567,30 @@ export class Game {
     this.contacts();
     this.collectItems();
 
-    // The first one over the line ends the race for everybody.
-    if (!this.raceOver && (p.finished || this.rivals.some((r) => r.sim.finished))) this.endRace();
-
-    if (this.state === 'race' && (p.finished || p.halted)) {
+    if (this.state === 'race' && p.finished) {
       this.state = 'done';
       this.doneT = 0;
+      this.settleT = 0;
       this.input.enabled = false;
     }
     if (this.state === 'done') {
+      // Nobody's race is cut short: wait until every runner is over the line
+      // (a friend who left the room isn't coming).
+      const waiting = this.rivals.filter((r) => !r.sim.finished && (r.sim instanceof Rival || this.online?.connected)).length;
       this.doneT += dt;
-      // Everyone has stopped (or crossed); give them a moment to pull up.
-      if (this.doneT > 3) {
+      if (waiting) {
+        this.settleT = 0;
+        if (!this.waitTold && this.doneT > 2.2) {
+          this.waitTold = true;
+          this.hud.flash(`รอทุกคนเข้าเส้นชัย… (อีก ${waiting} คน)`, 'good', 2.5);
+        }
+      } else this.settleT += dt;
+      // Everyone has crossed; give the last one a moment to pull up.
+      if (this.doneT > 3 && this.settleT > 2) {
         this.state = 'results';
         this.ceremony();
       }
     }
-  }
-
-  /** Somebody crossed the line: everyone still running stops where they are. */
-  private endRace() {
-    this.raceOver = true;
-    this.overT = this.t;
-    const p = this.player;
-    for (const r of this.rivals) r.sim.halt();
-    if (p.finished) return; // the finish flash already said it
-    p.halt();
-    this.endPose = 'defeat';
-    this.playerLock = 99;
-    const winner = this.racers().filter((r) => r.finished).sort(byFinish)[0];
-    this.hud.flash(`${winner?.name ?? 'มีคน'} เข้าเส้นชัยแล้ว! จบการแข่งขัน`, 'bad', 2.8);
   }
 
   // ── Ceremony ────────────────────────────────────────────────────────
@@ -616,7 +625,7 @@ export class Game {
    *  game clock stalls when a device stutters or its tab sleeps, so two players'
    *  game times can put the one who crossed second in first place. */
   private finishClock() {
-    return this.remote ? (performance.now() - this.gunWall) / 1000 : this.t;
+    return this.remote && this.online && this.startAt !== null ? (this.online.now() - this.gunWall) / 1000 : this.t;
   }
 
   /** Finishing place for a finish time (1 = first). */
@@ -712,7 +721,7 @@ export class Game {
           // Say why the box didn't give anything (once per box).
           if (s === this.player && this.fullWarned !== box.id) {
             this.fullWarned = box.id;
-            this.hud.flash(desktop ? 'ไอเท็มเต็ม! กด Q ใช้ก่อน' : 'ไอเท็มเต็ม! แตะปุ่มซ้ายล่างใช้ก่อน');
+            this.hud.flash(desktop ? 'ถือไอเท็มได้ทีละชิ้น! กด Q ใช้ก่อน' : 'ถือไอเท็มได้ทีละชิ้น! แตะปุ่มซ้ายล่างใช้ก่อน');
           }
           continue;
         }
@@ -749,6 +758,7 @@ export class Game {
       else if (e.type === 'shieldBlock') this.online.send({ t: 'sh', on: false });
       else if (e.type === 'item' && e.item === 'rocket') this.online.send({ t: 'rk', on: true });
       else if (e.type === 'rocketEnd') this.online.send({ t: 'rk', on: false });
+      if (e.type === 'pickup' || e.type === 'item') this.online.send({ t: 'it', k: this.player.item });
     }
     switch (e.type) {
       case 'jump':
@@ -918,6 +928,9 @@ export class Game {
       if (p.dashing || p.itemBoostT > 0) this.trail(p.x, p.y, p.d);
       this.playerBubble.update(p.shield && !this.podium, p.x, p.y, p.d, dt);
       this.playerRocket.update(p.flying && !this.podium, p.x, p.y, p.d, dt);
+      // The slot spins through the icons before it lands, over the head as in the HUD.
+      const rolling = p.itemRoll > 0 ? ROLL_ICONS[Math.floor(this.t * 14) % ROLL_ICONS.length] : null;
+      this.playerTag.update(this.podium || !p.item ? '' : rolling ?? ITEM_ICON[p.item], this.headAt(p.x, p.y, p.d), dt);
       if (p.flying) this.exhaust(p.x, p.y, p.d);
       v.update(dt, this.podium ? 0 : p.speed, this.podium ? 0 : p.laneVelocity);
     }
@@ -952,6 +965,7 @@ export class Game {
       r.bubble.update(s.shield && !this.podium, s.x, s.y, s.d, dt);
       const flying = s instanceof Rival ? s.flyT > 0 : s.rocket;
       r.rocket.update(flying && !this.podium, s.x, s.y, s.d, dt);
+      r.tag.update(this.podium || !s.item ? '' : ITEM_ICON[s.item], this.headAt(s.x, s.y, s.d), dt);
       if (flying) this.exhaust(s.x, s.y, s.d);
       // Ink dripping off a splattered rival.
       if (s instanceof Rival && s.inked && Math.random() < 0.3) this.debris.burst(s.x, s.y + 1.6, s.d, INK_COLORS, 1, 0.5, s.speed);
@@ -981,11 +995,18 @@ export class Game {
     this.renderer.render(this.scene, this.camera);
     if (this.podium) this.placeTags();
     if (this.state === 'race' || this.state === 'done') {
-      this.hud.update(this.racers(), this.raceOver ? this.overT : this.t, dt);
+      this.hud.update(this.racers(), this.t, dt);
       this.hud.setDash(p.dash / DASH.full, p.dashing);
       this.hud.setItem(p.item, p.itemRoll > 0, this.t, p.items.length);
       this.hud.setFlight(p.flyT);
     }
+  }
+
+  private head = new THREE.Vector3();
+
+  /** Just over a runner's head, in (bent) world space. */
+  private headAt(x: number, y: number, d: number) {
+    return this.path.toWorld(x, y + PLAYER.height, d, this.head);
   }
 
   /** Speed streaks behind a dashing runner. */

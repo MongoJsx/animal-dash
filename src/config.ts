@@ -65,7 +65,7 @@ export const DASH = { full: 100, perMeter: 0.3, perHit: 34, perBump: 8, time: 1.
 
 /**
  * Item boxes between obstacle rows: run through one to get a random item
- * (up to ITEM.max held), press to use it.
+ * (one held at a time, shown over the runner's head), press to use it.
  * - boost: faster for a while (doesn't smash things like a dash)
  * - shield: absorbs the next hit (obstacle, fall or dash ram)
  * - ink: splatters everyone ahead (blinds the player, makes AI fumble)
@@ -73,7 +73,7 @@ export const DASH = { full: 100, perMeter: 0.3, perHit: 34, perBump: 8, time: 1.
  * - rocket: fly above everything for 10 s, then drop back down and run on
  */
 export const ITEM = {
-  max: 3, // items the player can hold at once
+  max: 1, // items the player can hold at once
   roll: 0.6, // item slot spins this long before it can be used
   boxY: 1.15, // box centre height
   boostMul: 1.35,

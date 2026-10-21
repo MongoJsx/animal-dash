@@ -2,8 +2,11 @@
 // gets through any home or mobile network; no game server of our own). The
 // host owns a room code; host and guest each publish to their own topic and
 // listen on the other's. The host picks the seed and starts each race; both
-// sides simulate their own runner and stream its state to the other.
+// sides simulate their own runner and stream its state to the other. The guest
+// keeps its clock in step with the host's, so a race starts at the same moment
+// on both screens however long the start message took to get there.
 import mqtt, { type MqttClient } from 'mqtt';
+import type { ItemKind } from '../world/items.ts';
 
 const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const PREFIX = 'animaldash/v1/';
@@ -16,16 +19,18 @@ export type NetMove = 'jump' | 'bounce' | 'slide' | 'stumble' | 'fall' | 'launch
 
 export type NetMsg =
   | { t: 'char'; id: string }
-  | { t: 'start'; seed: number; map?: string }
+  | { t: 'start'; seed: number; map?: string; at?: number } // at: host clock (ms) when the start sequence begins
   | { t: 'again' }
   | { t: 's'; d: number; x: number; y: number; v: number }
   | { t: 'm'; m: NetMove }
   | { t: 'fin'; time: number }
   | { t: 'ink' } // you were ahead of me when I used ink
   | { t: 'sh'; on: boolean } // my shield went up / popped
-  | { t: 'rk'; on: boolean }; // my rocket lit / ran out
+  | { t: 'rk'; on: boolean } // my rocket lit / ran out
+  | { t: 'it'; k: ItemKind | null }; // the item I'm holding
 
-type Wire = NetMsg | { t: 'hello' } | { t: 'ping' } | { t: 'bye' };
+/** Clock sync: the guest sends `a` (its clock), the host answers with `b` (its own). */
+type Wire = NetMsg | { t: 'hello' } | { t: 'ping' } | { t: 'bye' } | { t: 'sync'; a: number; b?: number };
 
 export type NetStatus = 'waiting' | 'connecting' | 'connected' | 'closed' | 'error';
 
@@ -43,6 +48,9 @@ export class Online {
   private lastHeard = 0;
   private started = performance.now();
   private timer: number;
+  /** Host clock minus ours (ms), from the quickest round trip so far. */
+  private offset = 0;
+  private bestRtt = Infinity;
 
   private constructor(role: 'host' | 'guest', code: string, broker: number) {
     this.role = role;
@@ -102,6 +110,11 @@ export class Online {
     return url.toString();
   }
 
+  /** The host's clock (ms): the same moment reads the same on both devices. */
+  now() {
+    return Date.now() + this.offset;
+  }
+
   get connected() {
     return this.status === 'connected';
   }
@@ -119,6 +132,7 @@ export class Online {
     switch (w.t) {
       case 'hello':
         if (this.role === 'host') this.post({ t: 'hello' });
+        else this.post({ t: 'sync', a: Date.now() });
         this.set('connected');
         break;
       case 'bye':
@@ -126,6 +140,17 @@ export class Online {
         break;
       case 'ping':
         if (this.status !== 'connected' && this.status !== 'closed') this.set('connected');
+        break;
+      case 'sync':
+        if (this.role === 'host' && w.b === undefined) this.post({ t: 'sync', a: w.a, b: Date.now() });
+        else if (this.role === 'guest' && w.b !== undefined) {
+          const now = Date.now(), rtt = now - w.a;
+          // The quickest answer is the one least skewed by a slow leg.
+          if (rtt >= 0 && rtt <= this.bestRtt) {
+            this.bestRtt = rtt;
+            this.offset = w.b + rtt / 2 - now;
+          }
+        }
         break;
       default:
         this.onMessage(w);
@@ -136,6 +161,7 @@ export class Online {
     const now = performance.now();
     if (this.connected) {
       this.post({ t: 'ping' });
+      if (this.role === 'guest') this.post({ t: 'sync', a: Date.now() });
       if (now - this.lastHeard > TIMEOUT * 1000) this.set('closed');
     } else if (!this.client.connected && this.status !== 'closed' && now - this.started > JOIN_TIMEOUT * 1000) {
       this.fail('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ลองใหม่อีกครั้ง');

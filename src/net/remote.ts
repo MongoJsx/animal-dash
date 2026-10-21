@@ -3,6 +3,7 @@
 // so 20 Hz updates still look smooth.
 import { DASH } from '../config.ts';
 import type { RivalMove } from '../entities/rival.ts';
+import type { ItemKind } from '../world/items.ts';
 import type { NetMove } from './online.ts';
 
 export class Remote {
@@ -19,6 +20,8 @@ export class Remote {
   shield = false;
   /** Flying on a rocket, for drawing. */
   rocket = false;
+  /** The item they're holding, for the icon over their head. */
+  item: ItemKind | null = null;
   private dashT = 0;
 
   get dashing() {
@@ -39,11 +42,6 @@ export class Remote {
   move(m: NetMove) {
     this.moves.push(m);
     if (m === 'dash') this.dashT = DASH.time;
-  }
-
-  /** We won: their own game stops them; this is just for drawing. */
-  halt() {
-    if (!this.finished) this.halted = true;
   }
 
   finish(time: number) {

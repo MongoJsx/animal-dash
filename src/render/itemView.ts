@@ -119,6 +119,61 @@ export class RocketPack {
   }
 }
 
+const iconTextures = new Map<string, THREE.CanvasTexture>();
+
+/** An emoji on a white disc, drawn once per icon. */
+function iconTexture(icon: string) {
+  let tex = iconTextures.get(icon);
+  if (tex) return tex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fffffff0';
+  g.strokeStyle = '#ff9f1c';
+  g.lineWidth = 8;
+  g.beginPath();
+  g.arc(64, 64, 56, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  g.font = '72px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(icon, 64, 70);
+  tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  iconTextures.set(icon, tex);
+  return tex;
+}
+
+/**
+ * The held item floating over a runner's head. Sprites skip the bend shader,
+ * so it is placed at an already-bent world position.
+ */
+export class ItemTag {
+  readonly sprite = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: false, fog: false }));
+  private icon = '';
+  private t = Math.random() * 10;
+
+  constructor() {
+    this.sprite.visible = false;
+    this.sprite.scale.setScalar(0.62);
+    this.sprite.renderOrder = 5;
+  }
+
+  /** `icon`: what to show, or '' for nothing; `at`: the top of the head, in world space. */
+  update(icon: string, at: THREE.Vector3, dt: number) {
+    this.sprite.visible = !!icon;
+    if (!icon) return;
+    if (icon !== this.icon) {
+      this.icon = icon;
+      this.sprite.material.map = iconTexture(icon);
+      this.sprite.material.needsUpdate = true;
+    }
+    this.t += dt;
+    this.sprite.position.copy(at).y += 0.45 + Math.sin(this.t * 4) * 0.06;
+  }
+}
+
 const bubbleGeo = new THREE.SphereGeometry(1, 20, 14);
 const bubbleMat = new THREE.MeshLambertMaterial({ color: 0x7ae0ff, emissive: 0x2277aa, transparent: true, opacity: 0.28, depthWrite: false });
 
