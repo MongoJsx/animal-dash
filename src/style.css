@@ -45,27 +45,27 @@ canvas { display: block; width: 100%; height: 100%; }
 
 
 
-/* Dash meter: a glass pill up the left edge that fills from the bottom. */
-.dash-bar { position: absolute; left: 12px; top: 118px; bottom: max(150px, calc(env(safe-area-inset-bottom) + 136px)); width: 30px; border-radius: 99px; overflow: hidden;
+/* Dash meter: a small glass pill in the bottom-left corner that fills from the bottom. */
+.dash-bar { position: absolute; left: 14px; bottom: max(22px, calc(env(safe-area-inset-bottom) + 8px)); height: 128px; width: 22px; border-radius: 99px; overflow: hidden;
   background: linear-gradient(90deg, #0008, #0005); border: 2px solid #ffffff55; box-shadow: 0 4px 14px #0005, inset 0 0 0 1px #0004; transition: border-color .2s, box-shadow .2s, width .25s cubic-bezier(.3, 1.6, .5, 1); }
 .dash-fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--p, 0) * 100%); border-radius: 99px; transition: height .12s linear;
   background: linear-gradient(0deg, #ff5d00, #ff9f1c 55%, #ffd166); box-shadow: inset 0 0 0 1px #fff4, inset 6px 0 6px -3px #fff8; }
 /* Tick marks so the fill reads as a gauge. */
 .dash-bar::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: repeating-linear-gradient(0deg, transparent 0 calc(25% - 1px), #0003 calc(25% - 1px) 25%); }
-.dash-ico { position: absolute; left: 50%; bottom: 3px; z-index: 2; transform: translateX(-50%); font-size: 15px; line-height: 20px; filter: drop-shadow(0 1px 2px #0008); opacity: .75; transition: opacity .2s; }
-.dash-text { position: absolute; left: 50%; top: 50%; z-index: 2; writing-mode: vertical-rl; transform: translate(-50%, -50%) rotate(180deg); white-space: nowrap;
-  font-size: 13px; font-weight: 900; letter-spacing: 3px; color: #fff; text-shadow: 0 0 6px #ff5d00, 0 1px 2px #0009; opacity: 0; transition: opacity .25s; }
-.dash-bar.ready { width: 36px; border-color: #fff; box-shadow: 0 0 0 3px #ffb70366, 0 0 22px 6px #ffb703aa; animation: dashGlow .8s ease-in-out infinite alternate; }
+.dash-ico { position: absolute; left: 50%; bottom: 2px; z-index: 2; transform: translateX(-50%); font-size: 11px; line-height: 16px; filter: drop-shadow(0 1px 2px #0008); opacity: .75; transition: opacity .2s; }
+.dash-text { position: absolute; left: 50%; top: calc(50% - 7px); z-index: 2; writing-mode: vertical-rl; transform: translate(-50%, -50%) rotate(180deg); white-space: nowrap;
+  font-size: 10px; font-weight: 900; letter-spacing: 1.5px; color: #fff; text-shadow: 0 0 6px #ff5d00, 0 1px 2px #0009; opacity: 0; transition: opacity .25s; }
+.dash-bar.ready { width: 26px; border-color: #fff; box-shadow: 0 0 0 3px #ffb70366, 0 0 14px 3px #ffb703aa; animation: dashGlow .8s ease-in-out infinite alternate; }
 .dash-bar.ready .dash-fill { background: linear-gradient(0deg, #ff5d00, #ff9f1c 45%, #ffd166 80%, #fff3c4); }
 /* A shine sweeping up the full bar. */
 .dash-bar.ready .dash-fill::after { content: ''; position: absolute; left: 0; right: 0; height: 40%; background: linear-gradient(0deg, transparent, #ffffffaa, transparent); animation: dashShine 1.1s linear infinite; }
 .dash-bar.ready .dash-text { opacity: 1; animation: dashText .8s ease-in-out infinite alternate; }
 .dash-bar.ready .dash-ico { opacity: 1; }
-.dash-bar.active { width: 36px; border-color: #fff; box-shadow: 0 0 22px 6px #7ae0ffaa; }
+.dash-bar.active { width: 26px; border-color: #fff; box-shadow: 0 0 22px 6px #7ae0ffaa; }
 .dash-bar.active .dash-fill { background: linear-gradient(0deg, #2aa8ff, #7ae0ff 60%, #fff); }
-@keyframes dashGlow { from { box-shadow: 0 0 0 3px #ffb70344, 0 0 12px 2px #ffb70388; } to { box-shadow: 0 0 0 4px #ffb70399, 0 0 26px 8px #ffb703cc; } }
+@keyframes dashGlow { from { box-shadow: 0 0 0 2px #ffb70344, 0 0 8px 1px #ffb70388; } to { box-shadow: 0 0 0 3px #ffb70399, 0 0 16px 4px #ffb703cc; } }
 @keyframes dashShine { from { bottom: -40%; } to { bottom: 100%; } }
-@keyframes dashText { from { letter-spacing: 3px; } to { letter-spacing: 4.5px; } }
+@keyframes dashText { from { opacity: .75; } to { opacity: 1; } }
 
 /* The held item over the runner's head; ripples say "tap me". Placed by transform from the game. */
 .head-item { position: absolute; left: 0; top: 0; width: 64px; height: 64px; padding: 0; border: 0; background: none; color: #fff; font: inherit; pointer-events: auto; touch-action: none; }
