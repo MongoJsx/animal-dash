@@ -643,6 +643,8 @@ export class Game {
     const podium = new Podium(this.player.d + 9);
     this.podium = podium;
     this.juice.ceremonyShow();
+    sound.fireworks();
+    sound.setMusic('menu');
     this.scene.add(podium.root);
     this.cheer = [];
     this.standings.forEach((s, place) => {

@@ -144,6 +144,7 @@ export class Hud {
             <li><b>หลบต่อเนื่อง</b> — สะสม FOCUS วิ่งเร็วขึ้นเรื่อย ๆ</li>
             <li><b>กล่อง ?</b> — วิ่งชนเพื่อสุ่มไอเท็ม: ⚡ บูสต์ · 🛡️ โล่กันชน 1 ครั้ง · 🦑 หมึกใส่คนข้างหน้า · 🦘 สปริงกระโดดข้าม · 🚀 จรวดบินข้ามทุกอย่าง 10 วิ</li>
           </ul>
+          <div class="help-credits">เพลง: “Monkeys Spinning Monkeys”, “Hyperfun” โดย Kevin MacLeod (incompetech.com) · CC BY 4.0</div>
           <button class="help-close">เข้าใจแล้ว!</button>
         </div>
       </div>`;

@@ -236,11 +236,6 @@ class Sound {
     if (track) this.startTrack(track);
   }
 
-  /** Kept for callers from before the race had its own tune. */
-  menuMusic(on: boolean) {
-    this.setMusic(on ? 'menu' : null);
-  }
-
   private startTrack(name: Track) {
     const ctx = this.ctx;
     if (!ctx) return;

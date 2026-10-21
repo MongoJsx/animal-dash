@@ -176,6 +176,7 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; margin: 0 2px; b
 .help-item kbd { font-size: 15px; padding: 2px 10px; background: #fff; color: var(--ink); border-bottom-color: #9aa3b8; }
 .help-tips { margin: 0 0 14px; padding-left: 18px; font-size: 14px; line-height: 1.55; color: rgba(255, 255, 255, .85); }
 .help-tips b { color: #fff; }
+.help-credits { margin: -6px 0 12px; font-size: 11px; line-height: 1.4; color: rgba(255, 255, 255, .5); }
 .help-close { width: 100%; padding: 12px; border: 0; border-radius: 16px; background: var(--gold); color: var(--ink) !important; font-size: 18px; font-weight: 800; box-shadow: 0 5px 0 var(--gold-edge); }
 
 /* Results */
