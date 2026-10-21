@@ -1,6 +1,7 @@
 // Ties simulation, rendering and UI together: menu → countdown → race → results.
 import * as THREE from 'three';
 import { DASH, ITEM, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
+import { sound } from './core/audio.ts';
 import { Input } from './core/input.ts';
 import { Rng } from './core/rng.ts';
 import { botActions } from './entities/bot.ts';
@@ -240,6 +241,7 @@ export class Game {
 
   private showMenu() {
     this.state = 'menu';
+    sound.menuMusic(true);
     this.input.enabled = false;
     this.reset(1234);
     this.setPlayerView(this.selected);
@@ -446,6 +448,7 @@ export class Game {
         this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
       }
     }
+    sound.menuMusic(false);
     this.hud.startRace(this.racers());
     this.state = 'countdown';
     this.countdownT = 0;
@@ -774,6 +777,7 @@ export class Game {
         if (!this.player.sliding) this.playerLock = 0;
         break;
       case 'stumble':
+        sound.stumble();
         v?.play('stumble', 0.9);
         this.playerLock = 0.9;
         this.shake = 0.35;
@@ -786,6 +790,7 @@ export class Game {
         this.hud.hit();
         break;
       case 'fall':
+        sound.fall();
         v?.play('fall', 0.8);
         this.playerLock = 0.8;
         this.shake = 0.3;
@@ -822,6 +827,7 @@ export class Game {
         this.hud.flash('เบียดออกไป!', 'good');
         break;
       case 'stunned':
+        sound.stumble();
         v?.play('stumble', 0.45);
         this.playerLock = 0.45;
         this.shake = 0.3;
@@ -829,6 +835,7 @@ export class Game {
         this.hud.hit();
         break;
       case 'pickup':
+        sound.pickup();
         // Until they've used one, remind them how.
         this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะปุ่มซ้ายล่างเพื่อใช้', 'good');
         break;
@@ -878,6 +885,7 @@ export class Game {
         const place = 1 + this.rivals.filter((r) => r.sim.finished || (r.sim instanceof Remote && r.sim.d >= RACE_LENGTH)).length;
         // Run it out first; the pose comes once they've slowed (see render).
         this.endPose = place === 1 ? 'victory' : 'defeat';
+        sound.finish(place === 1);
         this.playerLock = 99;
         this.hud.flash(place === 1 ? 'เข้าเส้นชัยที่ 1!' : `เข้าเส้นชัยที่ ${place}`, 'good');
         break;

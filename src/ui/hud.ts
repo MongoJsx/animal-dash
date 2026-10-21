@@ -1,5 +1,6 @@
 // DOM overlay: menu, countdown, race HUD (progress, rank, Focus) and results.
 import { FOCUS, RACE_LENGTH } from '../config.ts';
+import { sound } from '../core/audio.ts';
 import type { CharacterDef } from '../render/character.ts';
 import { MAPS, MAP_IDS, type MapId } from '../world/biomes.ts';
 import { ITEM_ICON, type ItemKind } from '../world/items.ts';
@@ -115,6 +116,7 @@ export class Hud {
         <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">ANIMAL DASH</span></div>
       </div>
       <button class="help-btn" aria-label="วิธีเล่น">?</button>
+      <button class="sound-btn" aria-label="เปิด/ปิดเสียง">${sound.muted ? '🔇' : '🔊'}</button>
       <button class="arrow prev" aria-label="ตัวก่อนหน้า"></button>
       <button class="arrow next" aria-label="ตัวถัดไป"></button>
       <div class="panel">
@@ -173,6 +175,8 @@ export class Hud {
     this.menu.querySelector<HTMLButtonElement>('.help-btn')!.onclick = () => help.classList.remove('hidden');
     help.onclick = (e) => { if (e.target === help) help.classList.add('hidden'); };
     this.menu.querySelector<HTMLButtonElement>('.help-close')!.onclick = () => help.classList.add('hidden');
+    const mute = this.menu.querySelector<HTMLButtonElement>('.sound-btn')!;
+    mute.onclick = () => { mute.textContent = sound.toggleMute() ? '🔇' : '🔊'; };
     this.menu.querySelector<HTMLButtonElement>('.start')!.onclick = onStart;
     this.menu.querySelector<HTMLButtonElement>('.online-btn')!.onclick = onOnline;
   }
