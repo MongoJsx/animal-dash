@@ -288,6 +288,11 @@ export class Game {
     this.updateLobby();
   }
 
+  /** On the menu with no room open: safe to reload for a new version. */
+  get idle() {
+    return this.state === 'menu' && !this.online && !this.joining;
+  }
+
   // ── Online ──────────────────────────────────────────────────────────
   private connect(online: Online) {
     this.online?.close();

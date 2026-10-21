@@ -1,7 +1,11 @@
 import './style.css';
+import { watchForUpdates } from './core/update.ts';
 import { Game } from './game.ts';
 import { loadCharacters } from './render/character.ts';
 import { loadProps } from './render/props.ts';
+
+let game: Game | null = null;
+watchForUpdates(() => !game || game.idle);
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const loading = document.createElement('div');
@@ -16,5 +20,5 @@ Promise.all([
   Promise.all(['900 40px Kanit', 'italic 900 40px Kanit', '800 40px Kanit'].map((f) => document.fonts.load(f))).catch(() => {}),
 ]).then(([chars]) => {
   loading.remove();
-  new Game(app, chars);
+  game = new Game(app, chars);
 });
