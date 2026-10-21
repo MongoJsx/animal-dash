@@ -156,12 +156,15 @@ class Sound {
     src.buffer = buf;
     src.connect(g).connect(this.sfx);
     const t = ctx.currentTime;
-    if (length) {
-      g.gain.setValueAtTime(1, t + length * 0.6);
-      g.gain.linearRampToValueAtTime(0, t + length);
-      src.stop(t + length + 0.05);
-    }
-    src.start(t, Math.max(0, from));
+    // A sound going wrong must never take the game loop down with it.
+    try {
+      src.start(t, Math.max(0, from));
+      if (length) {
+        g.gain.setValueAtTime(1, t + length * 0.6);
+        g.gain.linearRampToValueAtTime(0, t + length);
+        src.stop(t + length + 0.05);
+      }
+    } catch { /* skip this one */ }
     return true;
   }
 
