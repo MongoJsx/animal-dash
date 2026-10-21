@@ -50,17 +50,14 @@ export class Hud {
   private sub: HTMLElement;
   private zone: HTMLElement;
   private zoneTimer = 0;
-  private dashBtn: HTMLButtonElement;
+  private dashBar: HTMLElement;
   private dashFill = -1;
   private dashState = '';
-  /** Set by the game: the dash button was pressed. */
-  onDash: () => void = () => {};
+  /** The held item, over the runner's head: tap it to use it. */
   private itemBtn: HTMLButtonElement;
   private itemIcon: HTMLElement;
   private itemCount: HTMLElement;
   private itemKey = '';
-  /** Set by the game: the item button was pressed. */
-  onItem: () => void = () => {};
   private inkBox: HTMLElement;
   private flight: HTMLElement;
   private flightShown = 0;
@@ -90,14 +87,13 @@ export class Hud {
     this.toast = el('div', 'toast', this.root);
     this.big = el('div', 'big', this.root);
     this.sub = el('div', 'big-sub', this.root);
-    this.dashBtn = el('button', 'dash-btn', this.race, `<span class="dash-label">DASH</span><small>${desktop ? 'Shift' : ''}</small>`);
-    for (const ev of ['pointerdown', 'pointerup'] as const) this.dashBtn.addEventListener(ev, (e) => e.stopPropagation());
-    this.dashBtn.addEventListener('pointerdown', () => this.onDash());
-    this.itemBtn = el('button', 'item-btn empty', this.race, `<span class="item-icon"></span><small>${desktop ? 'Q' : ''}</small>`);
+    // Dash meter up the left edge; full, it says how to fire it, written along the bar.
+    this.dashBar = el('div', 'dash-bar', this.race, `<div class="dash-fill"></div><span class="dash-text">${desktop ? 'SHIFT · DASH' : 'DOUBLE TAP'}</span><b class="dash-ico">⚡</b>`);
+    // Input reads a tap on it as 'item' (a swipe that starts on it is still a swipe).
+    this.itemBtn = el('button', 'head-item', this.race, '<i class="ring"></i><i class="ring"></i><i class="ring"></i><span class="item-icon"></span>');
+    this.itemBtn.setAttribute('aria-label', 'ใช้ไอเท็ม');
     this.itemIcon = this.itemBtn.querySelector<HTMLElement>('.item-icon')!;
     this.itemCount = el('span', 'item-count', this.itemBtn);
-    for (const ev of ['pointerdown', 'pointerup'] as const) this.itemBtn.addEventListener(ev, (e) => e.stopPropagation());
-    this.itemBtn.addEventListener('pointerdown', () => this.onItem());
     // Splats over the view of the track ahead.
     this.inkBox = el('div', 'ink', this.root, '<i></i><i></i><i></i><i></i><i></i><i></i>');
     this.flight = el('div', 'flight', this.race);
@@ -115,7 +111,7 @@ export class Hud {
     this.inkBox.classList.remove('show');
     const controls = desktop
       ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช'], ['Q', 'ใช้ไอเท็ม']]
-      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['ปุ่ม DASH', 'แดช'], ['ปุ่มไอเท็ม', 'ใช้ไอเท็ม']];
+      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['แตะ 2 ครั้ง', 'แดช (เกจซ้ายเต็ม)'], ['แตะไอเท็มบนหัว', 'ใช้ไอเท็ม']];
     this.menu.innerHTML = `
       <div class="menu-top">
         <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">วิ่งซิ่งข้ามโลก</span></div>
@@ -231,7 +227,13 @@ export class Hud {
     this.itemKey = key;
     this.itemIcon.textContent = icon;
     this.itemCount.textContent = count > 1 ? `×${count}` : '';
-    this.itemBtn.className = `item-btn ${!item ? 'empty' : rolling ? 'rolling' : 'ready'}`;
+    this.itemBtn.className = `head-item ${!item ? '' : rolling ? 'show rolling' : 'show ready'}`;
+  }
+
+  /** Keep the item over the runner's head (screen px), or hide it with null. */
+  placeItem(p: { x: number; y: number } | null) {
+    this.itemBtn.style.visibility = p ? '' : 'hidden';
+    if (p) this.itemBtn.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -50%)`;
   }
 
   /** Rocket fuel left (s); 0 hides the gauge. */
@@ -277,11 +279,11 @@ export class Hud {
     const q = Math.round(fill * 50) / 50;
     if (q !== this.dashFill) {
       this.dashFill = q;
-      this.dashBtn.style.setProperty('--p', `${q * 100}%`);
+      this.dashBar.style.setProperty('--p', `${q}`);
     }
     if (state !== this.dashState) {
       this.dashState = state;
-      this.dashBtn.className = `dash-btn ${state}`;
+      this.dashBar.className = `dash-bar ${state}`;
       this.root.classList.toggle('dashing', active);
     }
   }

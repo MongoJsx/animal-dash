@@ -61,14 +61,15 @@ const SURFACE: Record<BiomeId, Surface> = {
 const MARKS_TIME = GO_AT - 1;
 const LAUNCH_AT = 0.4; // everyone leaves the blocks together, this long after the gun
 const BURST_TIME = 1.25;
-const START_LEAD = 1.2; // online: the start sequence begins this long after the host presses start
+const START_LEAD = 1.5; // online: the start sequence begins this long after the host presses start
+const START_MIRROR = 1.2; // online: after the launch, a friend is drawn at least at our speed this long
+const MAX_CATCH_UP = 0.25; // online: most race time (s) one frame may simulate to keep up with the shared clock
 
 interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number; bubble: Bubble; shield: boolean; rocket: RocketPack; tag: ItemTag }
 
 const POP_COLORS = [0x7ae0ff, 0xffffff, 0xbdf3ff];
 const INK_COLORS = [0x120c24, 0x2a1f4d, 0x000000];
 const BOX_COLORS = [0xffe066, 0xff9f1c, 0xff5d8f, 0xffffff];
-const ROLL_ICONS = Object.values(ITEM_ICON);
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -82,7 +83,6 @@ export class Game {
   private itemBoxes: ItemBoxes | null = null;
   private playerBubble = new Bubble();
   private playerRocket = new RocketPack();
-  private playerTag = new ItemTag();
   private input: Input;
   private hud: Hud;
   private clock = new THREE.Clock();
@@ -157,9 +157,7 @@ export class Game {
 
     this.input = new Input(container);
     this.hud = new Hud(container);
-    this.hud.onDash = () => this.input.press('dash');
-    this.hud.onItem = () => this.input.press('item');
-    this.scene.add(this.debris.mesh, this.juice.root, this.playerBubble.mesh, this.playerRocket.root, this.playerTag.sprite);
+    this.scene.add(this.debris.mesh, this.juice.root, this.playerBubble.mesh, this.playerRocket.root);
     addEventListener('keydown', (e) => this.menuKey(e));
 
     addEventListener('resize', () => this.resize());
@@ -328,7 +326,7 @@ export class Game {
         if (this.online?.role === 'host' && this.state === 'results') this.startRace();
         break;
       case 's':
-        this.remote?.receive(m.d, m.x, m.y, m.v);
+        this.remote?.receive(m.d, m.x, m.y, m.v, this.sinceSent(m.v, m.w));
         break;
       case 'm':
         this.remote?.move(m.m);
@@ -451,6 +449,7 @@ export class Game {
     this.reset(seed);
     this.setPlayerView(this.selected);
     this.remote = null;
+    this.startPath = [];
     if (online) {
       // Host in box 1 (merging left), guest in box 2 (merging to the middle).
       const mine = online.role === 'host' ? [0, -1] : [1, 0];
@@ -527,11 +526,43 @@ export class Game {
       this.slowFrames = 0;
     }
     this.acc += dt;
+    // Online, the race runs on the shared clock: a frame that stalls (a slow
+    // phone, a hitch at the gun) is caught up, so neither side falls behind
+    // the other just because its screen hiccupped.
+    const lag = this.raceLag();
+    if (lag !== null) this.acc = Math.min(lag, MAX_CATCH_UP);
     while (this.acc >= TICK) {
       this.step(TICK);
       this.acc -= TICK;
     }
     this.render(dt);
+  }
+
+  /**
+   * Metres a friend has run since a packet left them: its age on the shared
+   * clock (ignoring a wild reading) at the speed it carried. Through the pick-up
+   * that speed is stale and low, but everyone accelerates alike, so they have
+   * gone at least as far as we went over the same stretch of time.
+   */
+  private sinceSent(v: number, w?: number) {
+    if (!w || !this.online) return 0;
+    const age = Math.min(1, Math.max(0, (this.online.now() - w) / 1000));
+    const then = this.startPath[Math.round((w - this.gunWall) / 1000 / TICK)];
+    return Math.max(v * age, this.gunT < LAUNCH_AT + START_MIRROR && then !== undefined ? this.player.d - then : 0);
+  }
+  /** Online: the player's distance at each tick since the gun (for `sinceSent`). */
+  private startPath: number[] = [];
+
+  /** Online: the shared-clock moment (ms) the game's race time stands for (a frame catching up runs behind now). */
+  private raceWall() {
+    return this.startAt !== null ? this.gunWall + this.t * 1000 : this.online!.now();
+  }
+
+  /** Online racing: shared-clock time since the gun minus the game's own, in seconds. */
+  private raceLag() {
+    if (this.state !== 'race' && this.state !== 'done') return null;
+    if (!this.remote || !this.online || this.startAt === null) return null;
+    return (this.online.now() - this.gunWall) / 1000 - this.t;
   }
 
   private step(dt: number) {
@@ -591,16 +622,26 @@ export class Game {
     }
     if (this.bot && !p.finished && p.launched) actions.push(...botActions(p, this.track, this.t), ...(p.dashReady ? ['dash' as const] : []), ...(p.itemReady ? ['item' as const] : []));
     p.step(dt, this.t, actions, this.track);
+    if (this.remote && this.gunT < LAUNCH_AT + START_MIRROR) this.startPath.push(p.d);
     if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.finishClock());
     for (const e of p.events) this.onPlayerEvent(e);
     p.events.length = 0;
 
     if (this.online?.connected && this.remote && ++this.sendTick % 3 === 0) {
-      this.online.send({ t: 's', d: +p.d.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), v: +p.speed.toFixed(2) });
+      this.online.send({ t: 's', d: +p.d.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), v: +p.speed.toFixed(2), w: Math.round(this.raceWall()) });
     }
 
     for (const r of this.rivals) {
-      if (r.sim instanceof Remote) { r.sim.step(dt); continue; }
+      if (r.sim instanceof Remote) {
+        // Same gun, same start: they leave with us and run like us until their first packet lands.
+        // Through the pick-up their packets arrive bunched and already stale (still slow),
+        // so until everyone is up to speed they run at least as fast as we do between them.
+        if (p.launched) r.sim.launch();
+        if (r.sim.predicting) r.sim.speed = p.speed;
+        else if (this.gunT < LAUNCH_AT + START_MIRROR) r.sim.speed = Math.max(r.sim.speed, p.speed);
+        r.sim.step(dt);
+        continue;
+      }
       r.sim.step(dt, this.track, p.d, this.traffic(r.sim));
       if (!r.sim.finished && r.sim.d >= RACE_LENGTH) r.sim.finish(this.t);
       for (const item of r.sim.fired) if (item === 'ink') this.splatAhead(r.sim);
@@ -753,7 +794,6 @@ export class Game {
   private onLaunch() {
     this.playerView?.play('burst', BURST_TIME);
     this.playerLock = BURST_TIME;
-    this.online?.send({ t: 'm', m: 'launch' });
   }
 
   /** Everyone else's position, for a rival choosing a lane. */
@@ -788,7 +828,7 @@ export class Game {
           // Say why the box didn't give anything (once per box).
           if (s === this.player && this.fullWarned !== box.id) {
             this.fullWarned = box.id;
-            this.hud.flash(desktop ? 'ถือไอเท็มได้ทีละชิ้น! กด Q ใช้ก่อน' : 'ถือไอเท็มได้ทีละชิ้น! แตะปุ่มซ้ายล่างใช้ก่อน');
+            this.hud.flash(desktop ? 'ถือไอเท็มได้ทีละชิ้น! กด Q ใช้ก่อน' : 'ถือไอเท็มได้ทีละชิ้น! แตะไอเท็มบนหัวใช้ก่อน');
           }
           continue;
         }
@@ -891,7 +931,7 @@ export class Game {
         break;
       case 'dashReady':
         sound.dashReady();
-        this.hud.flash(desktop ? 'แดชพร้อม! กด Shift' : 'แดชพร้อม! กดปุ่ม DASH', 'good');
+        this.hud.flash(desktop ? 'แดชพร้อม! กด Shift' : 'แดชพร้อม! แตะจอ 2 ครั้ง', 'good');
         break;
       case 'shoved':
         sound.bump(false);
@@ -920,7 +960,7 @@ export class Game {
         sound.pickup();
         this.juice.pickup(this.player);
         // Until they've used one, remind them how.
-        this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะปุ่มซ้ายล่างเพื่อใช้', 'good');
+        this.hud.flash(this.usedItem ? 'ได้ไอเท็ม!' : desktop ? 'ได้ไอเท็ม! กด Q เพื่อใช้' : 'ได้ไอเท็ม! แตะที่ไอเท็มบนหัวเพื่อใช้', 'good');
         break;
       case 'item': {
         const p = this.player;
@@ -1040,9 +1080,6 @@ export class Game {
       if (p.dashing || p.itemBoostT > 0) this.trail(p.x, p.y, p.d);
       this.playerBubble.update(p.shield && !this.podium, p.x, p.y, p.d, dt);
       this.playerRocket.update(p.flying && !this.podium, p.x, p.y, p.d, dt);
-      // The slot spins through the icons before it lands, over the head as in the HUD.
-      const rolling = p.itemRoll > 0 ? ROLL_ICONS[Math.floor(this.t * 14) % ROLL_ICONS.length] : null;
-      this.playerTag.update(this.podium || !p.item ? '' : rolling ?? ITEM_ICON[p.item], this.headAt(p.x, p.y, p.d), dt);
       if (p.flying) this.exhaust(p.x, p.y, p.d);
       if (!this.podium && (this.state === 'race' || this.state === 'done')) this.juice.runner(p, p.sliding, p.flying, 1, dt);
       if (!this.podium && (this.state === 'race' || this.state === 'done') && this.track) {
@@ -1071,7 +1108,7 @@ export class Game {
         if (m === 'stunned' && s.d > p.d - 1) this.juice.hit(s, false, false);
       }
       r.lock -= dt;
-      const started = s instanceof Rival ? s.launched : s.d > 0.3;
+      const started = s.launched;
       if (r.lock <= 0 && started && (this.state === 'race' || this.state === 'done')) {
         // Past the line they run it out, then the winner celebrates.
         const stopped = (s.finished || s.halted) && s.speed < STOP_SPEED;
@@ -1129,6 +1166,9 @@ export class Game {
       this.hud.update(this.racers(), this.t, dt);
       this.hud.setDash(p.dash / DASH.full, p.dashing);
       this.hud.setItem(p.item, p.itemRoll > 0, this.t, p.items.length);
+      // The held item rides over the runner's head, where it is tapped.
+      const at = p.item && !this.podium ? this.headAt(p.x, p.y + 0.62, p.d).project(this.camera) : null;
+      this.hud.placeItem(at && at.z < 1 ? { x: (at.x * 0.5 + 0.5) * innerWidth, y: (-at.y * 0.5 + 0.5) * innerHeight } : null);
       this.hud.setFlight(p.flyT);
     }
   }

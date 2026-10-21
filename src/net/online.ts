@@ -21,7 +21,7 @@ export type NetMsg =
   | { t: 'char'; id: string }
   | { t: 'start'; seed: number; map?: string; at?: number } // at: host clock (ms) when the start sequence begins
   | { t: 'again' }
-  | { t: 's'; d: number; x: number; y: number; v: number }
+  | { t: 's'; d: number; x: number; y: number; v: number; w?: number } // w: host clock (ms) when sent
   | { t: 'm'; m: NetMove }
   | { t: 'fin'; time: number }
   | { t: 'ink' } // you were ahead of me when I used ink
