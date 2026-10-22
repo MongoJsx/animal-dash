@@ -16,6 +16,8 @@ export class Remote {
   laneVelocity = 0;
   finished = false;
   finishTime = 0;
+  /** Their character's strength, for who wins a barge. */
+  strength = 3;
   halted = false;
   moves: RivalMove[] = [];
   /** Their shield bubble, for drawing. */

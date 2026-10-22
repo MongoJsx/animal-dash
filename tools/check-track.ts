@@ -2,8 +2,9 @@
 // - every row leaves at least one lane passable at every moment
 // - no pattern repeats back to back, patterns cover the whole library
 // - the same seed builds the same track
+// Runs for every lane count (3, 4 and 5).
 // Usage: npx tsx tools/check-track.ts
-import { LANE_WIDTH, RACE_LENGTH } from '../src/config.ts';
+import { LANES, LANE_CHOICES, LANE_WIDTH, RACE_LENGTH, setLaneCount } from '../src/config.ts';
 import { hitBoxes, type Box } from '../src/world/obstacles.ts';
 import { buildTrack } from '../src/world/track.ts';
 
@@ -21,6 +22,7 @@ const STANCES = [
 
 const MAPS = ['thai', 'china', 'japan', 'fable'] as const;
 for (let seed = 1; seed <= SEEDS; seed++) {
+  setLaneCount(LANE_CHOICES[seed % LANE_CHOICES.length]);
   const map = MAPS[seed % MAPS.length];
   const track = buildTrack(seed, map);
   const again = buildTrack(seed, map);
@@ -38,12 +40,12 @@ for (let seed = 1; seed <= SEEDS; seed++) {
       for (const o of near) hitBoxes(o, t, boxes);
       const at = boxes.filter((b) => b.d0 <= d && b.d1 >= d);
       if (!at.length) continue;
-      const open = [-1, 0, 1].some((lane) => {
+      const open = LANES.some((lane) => {
         const x = lane * LANE_WIDTH;
         return STANCES.some((s) => !at.some((b) => x + 0.35 > b.x0 && x - 0.35 < b.x1 && s.y1 > b.y0 && s.y0 < b.y1));
       });
       if (!open) {
-        console.log(`seed ${seed}: blocked at d=${d.toFixed(1)} t=${t} kinds=${near.map((o) => o.kind).join(',')}`);
+        console.log(`seed ${seed} (${LANES.length} lanes): blocked at d=${d.toFixed(1)} t=${t} kinds=${near.map((o) => o.kind).join(',')}`);
         failures++;
         break;
       }

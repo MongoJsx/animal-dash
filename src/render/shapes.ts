@@ -2,6 +2,7 @@
 // geometry, so a whole obstacle or a 25 m stretch of scenery is one draw call.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { LANE_WIDTH, TRACK_HALF } from '../config.ts';
 
 export const flatMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
@@ -41,8 +42,21 @@ const tmpEuler = new THREE.Euler();
 
 export type Weight = (x: number, y: number, z: number) => number;
 
+/** Road half-width the roadside scenery is drawn for: three lanes. */
+export const SCENE_HALF = LANE_WIDTH * 1.5 + 0.3;
+/** Past this |x| a vertex belongs to the roadside (or reaches across the road) and moves out with a wider track. */
+const WIDEN_FROM = 3.0;
+
 export class Shapes {
   private parts: THREE.BufferGeometry[] = [];
+  /**
+   * Scenery is drawn around a three-lane road. With `widen` on, every vertex
+   * beyond the road's inner edge is pushed out by the extra width of the real
+   * track: kerbs, houses and trees move out whole, and anything spanning the
+   * road (the road itself, banners, wires, arches) stretches to fit.
+   */
+  widen = false;
+  private exactDepth = 0;
   private swayW: Weight | null = null;
   private flutterW: Weight | null = null;
 
@@ -51,6 +65,14 @@ export class Shapes {
     this.swayW = w;
     build();
     this.swayW = null;
+    return this;
+  }
+
+  /** Shapes added inside `build` are placed on the real track as given (lane lines, start blocks): never widened. */
+  exact(build: () => void): this {
+    this.exactDepth++;
+    build();
+    this.exactDepth--;
     return this;
   }
 
@@ -73,6 +95,14 @@ export class Shapes {
     tmpQuat.setFromEuler(tmpEuler.set(rx, ry, rz));
     tmpMatrix.compose(new THREE.Vector3(x, y, z), tmpQuat, new THREE.Vector3(sx, sy, sz));
     g.applyMatrix4(tmpMatrix);
+    const by = this.widen && !this.exactDepth ? TRACK_HALF - SCENE_HALF : 0;
+    if (by > 1e-3) {
+      const p = g.attributes.position;
+      for (let i = 0; i < n; i++) {
+        const x = p.getX(i);
+        if (Math.abs(x) > WIDEN_FROM) p.setX(i, x + Math.sign(x) * by);
+      }
+    }
     const sway = new Float32Array(n * 2);
     if (this.swayW || this.flutterW) {
       const p = g.attributes.position;

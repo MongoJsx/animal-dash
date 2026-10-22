@@ -2,14 +2,14 @@
 // country scenery, gantry), the gates between zones and the finish. Each country
 // dresses them in its own architecture.
 import * as THREE from 'three';
-import { START_SLOTS } from '../config.ts';
+import { LANE_MAX, LANE_WIDTH, TRACK_HALF, laneDividers, startSlots } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 import type { CountryId, Palette } from '../world/biomes.ts';
 import {
   GOLD, ball, bamboo, chedi, cherryTree, coconutPalm, cone, cylinder, pagoda, prang, redLantern, rod, roundTree,
   stoneLantern, streetLamp, thaiFlag, thaiHall, torii, type Batch,
 } from './kit.ts';
-import { TRACK_HALF } from './scenery.ts';
+import { SCENE_HALF } from './scenery.ts';
 
 function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void) {
   const c = document.createElement('canvas');
@@ -39,7 +39,13 @@ export function banner(text: string, x: number, y: number, z: number, w: number,
     g.textBaseline = 'middle';
     g.fillText(text, g.canvas.width / 2, g.canvas.height / 2 + 3);
   });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide }));
+  // Two faces back to back, so it reads the right way round from either side.
+  const geo = new THREE.PlaneGeometry(w, h);
+  const mat = new THREE.MeshBasicMaterial({ map });
+  const m = new THREE.Mesh(geo, mat);
+  const back = new THREE.Mesh(geo, mat);
+  back.rotation.y = Math.PI;
+  m.add(back);
   m.position.set(x, y, z);
   return m;
 }
@@ -145,7 +151,7 @@ function roadside(b: Batch, rng: Rng, country: CountryId | null, side: number, z
 function countryArch(b: Batch, country: CountryId | null, d: number, main: number, accent: number): number {
   const s = b.lit;
   const z = -d;
-  const x = TRACK_HALF + 0.7;
+  const x = SCENE_HALF + 0.7;
   switch (country) {
     case 'th': {
       for (const e of [-1, 1]) {
@@ -202,26 +208,29 @@ export function startArea(b: Batch, country: CountryId | null, seed: number): TH
   const s = b.lit;
   const rng = new Rng(seed ^ 0x77);
   const extras: THREE.Mesh[] = [];
-  // Box lines between the start slots, and the white start line.
-  const edges = [-3.4, -1.7, 0, 1.7, 3.4];
-  for (const x of edges) s.long(0xffffff, x, 0.012, 3.5, 0.08, 0.02, 9);
-  s.box(0xffffff, 0, 0.013, -0.75, TRACK_HALF * 2, 0.02, 0.2);
-  START_SLOTS.forEach((x, i) => {
-    // Starting blocks: a rail with two angled pedals.
-    s.box(0x3a3d45, x, 0.04, 0.55, 0.12, 0.08, 1.1);
-    for (const [px, pz] of [[-0.14, 0.15], [0.14, 0.6]]) {
-      s.add(new THREE.BoxGeometry(1, 1, 1), 0xd62828, x + px, 0.12, pz, -0.75, 0, 0, 0.18, 0.04, 0.24);
-    }
-    extras.push(laneNumber(i + 1, x, 2.4));
+  // Box lines between the lanes, the white start line, and a block in every lane.
+  s.box(0xffffff, 0, 0.013, -0.75, SCENE_HALF * 2, 0.02, 0.2);
+  s.exact(() => {
+    const outer = (LANE_MAX + 0.5) * LANE_WIDTH;
+    for (const x of [-outer, ...laneDividers(), outer]) s.long(0xffffff, x, 0.012, 3.5, 0.08, 0.02, 9);
+    startSlots().forEach((x) => {
+      // Starting blocks: a rail with two angled pedals.
+      s.box(0x3a3d45, x, 0.04, 0.55, 0.12, 0.08, 1.1);
+      for (const [px, pz] of [[-0.14, 0.15], [0.14, 0.6]]) {
+        s.add(new THREE.BoxGeometry(1, 1, 1), 0xd62828, x + px, 0.12, pz, -0.75, 0, 0, 0.18, 0.04, 0.24);
+      }
+    });
   });
+  // Lane 1 is the runners' right, so it reads 1, 2, 3… left to right facing the line.
+  startSlots().forEach((x, i, all) => extras.push(laneNumber(all.length - i, x, 2.4)));
   const flags = country ? FLAG_COLORS[country] : [0xe63946, 0xffbe0b, 0x3a86ff];
-  for (const side of [-1, 1]) roadside(b, rng, country, side, 4, 22, TRACK_HALF + 2.2, false);
+  for (const side of [-1, 1]) roadside(b, rng, country, side, 4, 22, SCENE_HALF + 2.2, false);
   const y = countryArch(b, country, 1.2, 0x264653, 0xe9c46a);
   extras.push(banner('START · เริ่ม', 0, y, -0.6, TRACK_HALF * 2 + 0.6, 0.85, '#d62828', '#fff', '#ffd23f'));
   // Flag poles in the country's colours behind the scenery.
   for (let i = 0; i < 6; i++) {
     for (const side of [-1, 1]) {
-      const x = side * (TRACK_HALF + 8), z = 12 - i * 4;
+      const x = side * (SCENE_HALF + 8), z = 12 - i * 4;
       cylinder(s, 0xdddddd, x, 0, z, 0.06, 7, 6);
       s.fluttering((_x, _y, vz) => (z - vz) / 1.3, () => s.cloth(flags[i % flags.length], x, 6.4, z - 0.7, 0.04, 0.9, 1.3));
     }
@@ -242,21 +251,25 @@ export function zoneGate(b: Batch, country: CountryId | null, next: Palette, d: 
 export function finishArea(b: Batch, country: CountryId | null, d: number, seed: number): THREE.Mesh[] {
   const s = b.lit;
   const z = -d;
-  for (let i = 0; i < 8; i++) for (let j = 0; j < 2; j++) {
-    s.box((i + j) % 2 ? 0x111111 : 0xffffff, -TRACK_HALF + (i + 0.5) * (TRACK_HALF * 2) / 8, 0.014, z - 0.4 + j * 0.8, (TRACK_HALF * 2) / 8, 0.02, 0.8);
-  }
+  // Checkered line, tiles of the same size whatever the width.
+  const tiles = Math.round(TRACK_HALF * 2 / 0.95);
+  s.exact(() => {
+    for (let i = 0; i < tiles; i++) for (let j = 0; j < 2; j++) {
+      s.box((i + j) % 2 ? 0x111111 : 0xffffff, -TRACK_HALF + (i + 0.5) * (TRACK_HALF * 2) / tiles, 0.014, z - 0.4 + j * 0.8, (TRACK_HALF * 2) / tiles, 0.02, 0.8);
+    }
+  });
   const rng = new Rng(seed ^ 0x99);
   const flags = country ? FLAG_COLORS[country] : [0xe63946, 0xffbe0b, 0x3a86ff];
-  for (const side of [-1, 1]) roadside(b, rng, country, side, z - 8, 24, TRACK_HALF + 2.2, true);
-  // Bunting over the line.
-  for (const zz of [z + 6, z - 6]) {
+  for (const side of [-1, 1]) roadside(b, rng, country, side, z - 8, 24, SCENE_HALF + 2.2, true);
+  // Bunting over the line, spread over the real width.
+  for (const zz of [z + 6, z - 6]) s.exact(() => {
     for (let i = 0; i < 10; i++) {
       const t = (i + 0.5) / 10, x = -TRACK_HALF - 1 + t * (2 * TRACK_HALF + 2);
       s.fluttering((_x, y) => (7.6 - Math.sin(t * Math.PI) * 0.5 - 0.35 - y) * 0.9, () => cone(s, flags[i % flags.length], x, 7.6 - Math.sin(t * Math.PI) * 0.5 - 0.6, zz, 0.22, 0.5, 6, Math.PI));
     }
     rod(s, 0x333333, -TRACK_HALF - 1, 7.6, zz, TRACK_HALF + 1, 7.6, zz, 0.02);
     for (const e of [-1, 1]) cylinder(s, 0xdddddd, e * (TRACK_HALF + 1), 0, zz, 0.07, 7.7, 6);
-  }
+  });
   const y = countryArch(b, country, d, 0xffffff, 0xe63946);
   return [banner('FINISH · เส้นชัย', 0, y, z + 0.6, TRACK_HALF * 2 + 0.6, 0.85, '#111', '#fff', '#ffd23f')];
 }

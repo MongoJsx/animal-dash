@@ -1,9 +1,31 @@
 // DOM overlay: menu, countdown, race HUD (progress, rank, Focus) and results.
-import { FOCUS, RACE_LENGTH } from '../config.ts';
+import { BASE_STATS, FOCUS, LANE_CHOICES, RACE_LENGTH, type Stats } from '../config.ts';
 import { sound } from '../core/audio.ts';
+import { profile } from '../core/profile.ts';
 import type { CharacterDef } from '../render/character.ts';
 import { MAPS, MAP_IDS, type MapId } from '../world/biomes.ts';
-import { ITEM_ICON, type ItemKind } from '../world/items.ts';
+import { ITEM_ICON, ITEM_KINDS, ITEM_NAME, type ItemKind } from '../world/items.ts';
+
+const STAT_NAMES: [keyof Stats, string][] = [['speed', 'ความเร็ว'], ['accel', 'ความเร่ง'], ['strength', 'แข็งแกร่ง'], ['stamina', 'ความอึด']];
+const STAT_MAX = 5;
+/** A few sakura petals drifting over the menu, each with its own lane, speed and start. */
+const PETALS = Array.from({ length: 7 }, (_, i) =>
+  `<i style="--x:${(8 + i * 14 + (i % 2) * 5).toFixed(0)}%;--d:${(9 + (i * 7) % 6).toFixed(0)}s;--w:${(-i * 1.7).toFixed(1)}s"></i>`).join('');
+/** What a runner is good at, from their best stat ('all' when every stat is the same). */
+type Role = keyof Stats | 'all';
+const ROLE: Record<Role, string> = { speed: 'สายสปีด', accel: 'สายโฟกัส', strength: 'สายบู๊', stamina: 'สายอึด', all: 'สายสมดุล' };
+const ROLE_ICON: Record<Role, string> = { speed: '⚡', accel: '🎯', strength: '💪', stamina: '🛡️', all: '⚖️' };
+function bestStat(s: Stats): Role {
+  const best = Math.max(s.speed, s.accel, s.strength, s.stamina);
+  if (best === Math.min(s.speed, s.accel, s.strength, s.stamina)) return 'all';
+  return STAT_NAMES.find(([k]) => s[k] === best)![0];
+}
+/** The race settings chosen in the room. */
+export interface Rules { map: MapId; lanes: number; items: ItemKind[] }
+/** "🇯🇵 ญี่ปุ่น · 5 เลน · ไอเท็ม 3/5" for the room's settings pill. */
+const rulesLine = (r: Rules) => `${MAPS[r.map].flag} ${MAPS[r.map].name} · ${r.lanes} เลน · ${
+  r.items.length === ITEM_KINDS.length ? 'ไอเท็มครบ' : r.items.length ? `ไอเท็ม ${r.items.length}/${ITEM_KINDS.length}` : 'ไม่มีไอเท็ม'}`;
+const roleOf = (s: Stats) => `${ROLE_ICON[bestStat(s)]} ${ROLE[bestStat(s)]}`;
 
 export interface Racer {
   name: string;
@@ -60,9 +82,10 @@ export class Hud {
   private itemKey = '';
   private inkBox: HTMLElement;
   private flight: HTMLElement;
-  private flightShown = 0;
+  private flightShown = '';
   private menu: HTMLElement;
   private results: HTMLElement;
+  private pick: HTMLElement;
   private toastTimer = 0;
 
   constructor(parent: HTMLElement) {
@@ -100,13 +123,14 @@ export class Hud {
     this.zone = el('div', 'zone-title', this.root);
     this.menu = el('div', 'menu hidden', this.root);
     this.results = el('div', 'results hidden', this.root);
-    addEventListener('resize', () => this.placeArrows());
+    this.pick = el('div', 'pick hidden', this.root);
   }
 
-  showMenu(chars: CharacterDef[], selected: string, onPick: (id: string) => void, onStart: () => void, onOnline: () => void,
-    map: MapId, onMap: (m: MapId) => void) {
+  /** Home: wallet and shortcuts on top, your runner, and the two ways to play. The race itself is set up in the room. */
+  showMenu(o: { char: CharacterDef; onStart: () => void; onOnline: () => void; onSpin: (dx: number, held: boolean) => void }) {
     this.race.classList.add('hidden');
     this.results.classList.add('hidden');
+    this.pick.classList.add('hidden');
     this.menu.classList.remove('hidden');
     this.root.classList.remove('zone', 'dashing');
     this.inkBox.classList.remove('show');
@@ -114,25 +138,36 @@ export class Hud {
       ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช'], ['Q', 'ใช้ไอเท็ม']]
       : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['แตะ 2 ครั้ง', 'แดช (เกจซ้ายล่างเต็ม)'], ['แตะ 1 ครั้ง', 'ใช้ไอเท็ม']];
     this.menu.innerHTML = `
+      <div class="petals">${PETALS}</div>
+      <div class="topbar">
+        <div class="profile"><span class="avatar">${ROLE_ICON[bestStat(o.char.stats ?? BASE_STATS)]}</span><span class="pname"><b>${profile.name}</b><small>ชนะ ${profile.wins} · แข่ง ${profile.races}</small></span></div>
+        <div class="wallet">
+          <span class="purse"><i class="coin"></i><b class="coins">${profile.coins.toLocaleString()}</b></span>
+          <button class="purse" data-act="shop"><i>💎</i><b>${profile.gems}</b><em>+</em></button>
+        </div>
+      </div>
+      <div class="side-btns left">
+        <button class="side-btn" data-act="shop"><i>🛒</i><span>ร้านค้า</span></button>
+        <button class="side-btn" data-act="rank"><i>🏆</i><span>อันดับ</span></button>
+      </div>
+      <div class="side-btns right">
+        <button class="side-btn sound-btn" aria-label="เปิด/ปิดเสียง"><i>${sound.muted ? '🔇' : '🔊'}</i><span>เสียง</span></button>
+        <button class="side-btn help-btn" aria-label="วิธีเล่น"><i class="q">?</i><span>วิธีเล่น</span></button>
+      </div>
       <div class="menu-top">
         <div class="logo"><span class="logo-th">วิ่งสุดใจ</span><span class="logo-en">วิ่งซิ่งข้ามโลก</span></div>
       </div>
-      <button class="help-btn" aria-label="วิธีเล่น">?</button>
-      <button class="sound-btn" aria-label="เปิด/ปิดเสียง">${sound.muted ? '🔇' : '🔊'}</button>
-      <button class="arrow prev" aria-label="ตัวก่อนหน้า"></button>
-      <button class="arrow next" aria-label="ตัวถัดไป"></button>
+      <div class="spin-hint">⟲ ลากเพื่อหมุนดูรอบตัว</div>
       <div class="panel">
-        <div class="who">
-          <span class="who-label">เลือกนักวิ่ง</span>
-          <b class="who-name"></b>
-          <div class="dots">${chars.map((c) => `<button class="char ${c.id === selected ? 'on' : ''}" data-id="${c.id}" aria-label="${c.name}"></button>`).join('')}</div>
-        </div>
-        <div class="maps">${MAP_IDS.map((m) => `<button class="map ${m === map ? 'on' : ''}" data-map="${m}"><span>${MAPS[m].flag}</span>${MAPS[m].name}</button>`).join('')}</div>
+        <div class="who"><span class="who-label">${o.char.name}</span></div>
         <div class="lobby hidden"></div>
-        <div class="row"><button class="start"><span class="start-label">เริ่มแข่ง</span></button><button class="online-btn"><span>🌐</span>เล่นกับเพื่อน</button></div>
-        ${desktop ? '<div class="keys"><kbd>Enter</kbd> เริ่มแข่ง · <kbd>←</kbd><kbd>→</kbd> เปลี่ยนตัวละคร</div>' : ''}
+        <div class="row">
+          <button class="start mode"><small class="start-kicker"></small><span class="start-label">เริ่มเกม</span></button>
+          <button class="online-btn mode"><small>ออนไลน์</small><b>เล่นกับเพื่อน</b><small>ส่งลิงก์ชวนแข่ง</small></button>
+        </div>
+        ${desktop ? '<div class="keys"><kbd>Enter</kbd> เริ่มเกม</div>' : ''}
       </div>
-      <div class="help hidden">
+      <div class="help modal hidden">
         <div class="help-card">
           <div class="help-title">วิธีเล่น</div>
           <div class="help-grid">${controls.map(([k, v]) => `<div class="help-item"><kbd>${k}</kbd><span>${v}</span></div>`).join('')}</div>
@@ -140,52 +175,76 @@ export class Hud {
             <li><b>ออกตัว</b> — ทุกคนออกพร้อมกันเมื่อนับ 3-2-1 แล้ว “GO!” ไม่ต้องกดอะไร</li>
             <li><b>ชนของ</b> — ช้าลง แต่เติมเกจแดช</li>
             <li><b>หลบต่อเนื่อง</b> — สะสม FOCUS วิ่งเร็วขึ้นเรื่อย ๆ</li>
-            <li><b>กล่อง ?</b> — วิ่งชนเพื่อสุ่มไอเท็ม: ⚡ บูสต์ · 🛡️ โล่กันชน 1 ครั้ง · 🦑 หมึกใส่คนข้างหน้า · 🦘 สปริงกระโดดข้าม · 🚀 จรวดบินข้ามทุกอย่าง 10 วิ</li>
+            <li><b>ค่าสถานะ</b> — ความเร็ว · ความเร่ง (FOCUS ขึ้นไว) · แข็งแกร่ง (เบียดชนะ) · ความอึด (ชนแล้ว FOCUS ลดน้อย)</li>
+            <li><b>กล่อง ?</b> — วิ่งชนเพื่อสุ่มไอเท็ม: ⚡ บูสต์ชนทะลุ + FOCUS · 🛡️ โล่กันทุกอย่าง 5 วิ · 🦑 หมึกใส่คนข้างหน้า · 🦘 ขาสปริงกระโดดสูง 5 วิ · 🚀 จรวดบินข้ามทุกอย่าง 10 วิ</li>
+            <li><b>เหรียญ</b> — แข่งจบได้เหรียญ ที่ 1 ได้ 100 · ที่ 2 ได้ 60</li>
           </ul>
           <div class="help-credits">เพลง: “Monkeys Spinning Monkeys”, “Hyperfun” โดย Kevin MacLeod (incompetech.com) · CC BY 4.0</div>
-          <button class="help-close">เข้าใจแล้ว!</button>
+          <button class="help-close" data-close>เข้าใจแล้ว!</button>
         </div>
-      </div>`;
-    const dots = [...this.menu.querySelectorAll<HTMLButtonElement>('.char')];
-    const name = this.menu.querySelector<HTMLElement>('.who-name')!;
-    const show = (id: string) => {
-      name.textContent = chars.find((c) => c.id === id)?.name ?? '';
-      name.classList.remove('swap');
-      void name.offsetWidth;
-      name.classList.add('swap');
+      </div>
+      <div class="sheet modal hidden"><div class="help-card sheet-card"></div></div>`;
+    this.soloKicker();
+    // Drag anywhere off the buttons and panels to turn your runner round.
+    let lastX: number | null = null;
+    this.menu.onpointerdown = (e) => {
+      if ((e.target as Element).closest('button, .panel, .topbar, .side-btns, .modal')) return;
+      lastX = e.clientX;
+      this.menu.setPointerCapture(e.pointerId);
+      this.menu.classList.add('spun');
     };
-    show(selected);
-    const pick = (b: HTMLButtonElement) => {
-      dots.forEach((x) => x.classList.toggle('on', x === b));
-      show(b.dataset.id!);
-      onPick(b.dataset.id!);
+    this.menu.onpointermove = (e) => {
+      if (lastX === null) return;
+      o.onSpin(e.clientX - lastX, true);
+      lastX = e.clientX;
     };
-    dots.forEach((b) => {
-      b.onclick = () => { sound.select(); pick(b); };
+    this.menu.onpointerup = this.menu.onpointercancel = () => {
+      if (lastX === null) return;
+      lastX = null;
+      o.onSpin(0, false);
+    };
+    // Every dialog closes on its button or a tap outside the card.
+    this.menu.querySelectorAll<HTMLElement>('.modal').forEach((m) => {
+      m.onclick = (e) => { if (e.target === m || (e.target as Element).closest('[data-close]')) m.classList.add('hidden'); };
     });
-    const step = (dir: number) => {
-      sound.swipe();
-      const i = dots.findIndex((b) => b.classList.contains('on'));
-      pick(dots[(i + dir + dots.length) % dots.length]);
-    };
-    this.menu.querySelector<HTMLButtonElement>('.prev')!.onclick = () => step(-1);
-    this.menu.querySelector<HTMLButtonElement>('.next')!.onclick = () => step(1);
-    this.menu.querySelectorAll<HTMLButtonElement>('.map').forEach((b) => {
-      b.onclick = () => {
-        sound.select();
-        this.menu.querySelectorAll('.map').forEach((x) => x.classList.toggle('on', x === b));
-        onMap(b.dataset.map as MapId);
-      };
-    });
-    const help = this.menu.querySelector<HTMLElement>('.help')!;
-    this.menu.querySelector<HTMLButtonElement>('.help-btn')!.onclick = () => help.classList.remove('hidden');
-    help.onclick = (e) => { if (e.target === help) help.classList.add('hidden'); };
-    this.menu.querySelector<HTMLButtonElement>('.help-close')!.onclick = () => help.classList.add('hidden');
-    const mute = this.menu.querySelector<HTMLButtonElement>('.sound-btn')!;
-    mute.onclick = () => { mute.textContent = sound.toggleMute() ? '🔇' : '🔊'; };
-    this.menu.querySelector<HTMLButtonElement>('.start')!.onclick = onStart;
-    this.menu.querySelector<HTMLButtonElement>('.online-btn')!.onclick = onOnline;
-    this.placeArrows();
+    this.menu.querySelector<HTMLButtonElement>('.help-btn')!.onclick = () => this.menu.querySelector('.help')!.classList.remove('hidden');
+    this.menu.querySelectorAll<HTMLButtonElement>('[data-act="shop"]').forEach((b) => { b.onclick = () => this.sheet('shop'); });
+    this.menu.querySelector<HTMLButtonElement>('[data-act="rank"]')!.onclick = () => this.sheet('rank');
+    const mute = this.menu.querySelector<HTMLButtonElement>('.sound-btn i')!;
+    this.menu.querySelector<HTMLButtonElement>('.sound-btn')!.onclick = () => { mute.textContent = sound.toggleMute() ? '🔇' : '🔊'; };
+    this.menu.querySelector<HTMLButtonElement>('.start')!.onclick = o.onStart;
+    this.menu.querySelector<HTMLButtonElement>('.online-btn')!.onclick = o.onOnline;
+  }
+
+  private soloKicker() {
+    const k = this.menu.querySelector<HTMLElement>('.start-kicker');
+    if (k && !this.menu.classList.contains('online')) k.textContent = 'โหมดเดี่ยว · แข่งกับบอท';
+  }
+
+  /** Shop and ranking: placeholders for now (the ranking shows this device's best times). */
+  private sheet(kind: 'shop' | 'rank') {
+    sound.tap();
+    const box = this.menu.querySelector<HTMLElement>('.sheet')!;
+    const card = box.querySelector<HTMLElement>('.sheet-card')!;
+    if (kind === 'shop') {
+      const goods = [['🎽', 'ชุดนักวิ่ง', 500], ['👟', 'รองเท้าลายซากุระ', 300], ['✨', 'เอฟเฟกต์ฝีเท้า', 800], ['🏷️', 'ป้ายชื่อทอง', 200]] as const;
+      card.innerHTML = `<div class="help-title">ร้านค้า</div>
+        <div class="sheet-sub">มี <b><span class="coin"></span> ${profile.coins.toLocaleString()}</b> · ร้านเปิดเร็ว ๆ นี้</div>
+        <div class="goods">${goods.map(([icon, name, price]) => `<div class="ware"><i>${icon}</i><b>${name}</b><span><span class="coin"></span> ${price}</span><em>เร็ว ๆ นี้</em></div>`).join('')}</div>
+        <button class="help-close" data-close>ปิด</button>`;
+    } else {
+      const rows = MAP_IDS.map((m) => {
+        const times = LANE_CHOICES.map((n) => profile.best[`${m}/${n}`]).filter((t): t is number => t !== undefined);
+        const best = times.length ? Math.min(...times) : null;
+        return `<li><span>${MAPS[m].flag} ${MAPS[m].name}</span><b>${best === null ? '—' : fmtTime(best)}</b></li>`;
+      }).join('');
+      card.innerHTML = `<div class="help-title">อันดับ</div>
+        <div class="sheet-sub">สถิติของคุณ · ชนะ <b>${profile.wins}</b> จาก ${profile.races} การแข่ง</div>
+        <ol class="ranks">${rows}</ol>
+        <div class="sheet-note">🌏 อันดับออนไลน์ทั่วประเทศ เร็ว ๆ นี้</div>
+        <button class="help-close" data-close>ปิด</button>`;
+    }
+    box.classList.remove('hidden');
   }
 
   /**
@@ -200,29 +259,166 @@ export class Hud {
     if (!box || !start || !onlineBtn) return;
     box.classList.toggle('hidden', !lobby);
     onlineBtn.classList.toggle('hidden', !!lobby);
-    start.querySelector('.start-label')!.textContent = lobby ? lobby.start : 'เริ่มแข่ง';
+    this.menu.classList.toggle('online', !!lobby);
+    start.querySelector('.start-label')!.textContent = lobby ? lobby.start : 'เริ่มเกม';
+    if (lobby) start.querySelector('.start-kicker')!.textContent = 'ห้องออนไลน์ · แข่งกับเพื่อน';
+    else this.soloKicker();
     start.disabled = !!lobby && !lobby.ready;
     this.menu.classList.toggle('guest', !!lobby?.guest);
     box.innerHTML = lobby?.html ?? '';
     for (const [name, fn] of Object.entries(lobby?.actions ?? {})) {
       box.querySelectorAll<HTMLElement>(`[data-act="${name}"]`).forEach((b) => { b.onclick = fn; });
     }
-    this.placeArrows();
   }
 
-  /** The character arrows sit in the clear space between the logo and the panel, whatever the panel's height. */
-  placeArrows() {
-    const top = this.menu.querySelector<HTMLElement>('.menu-top');
-    const panel = this.menu.querySelector<HTMLElement>('.panel');
-    if (!top || !panel) return;
-    // The "choose a runner" chip pokes out above the panel.
-    const mid = (top.offsetTop + top.offsetHeight + panel.offsetTop - 22) / 2;
-    this.menu.style.setProperty('--arrow-y', `${Math.round(mid)}px`);
+  // ── Runner select ("room"): the whole start line, a tag over every runner ─
+  /**
+   * @param o.taken who else is on the line, by character id (shown on the cards)
+   * @param o.ready the ready button's text and whether it can be pressed
+   */
+  showPick(o: {
+    chars: CharacterDef[]; selected: string; taken: Record<string, string>;
+    rules: Rules; canEdit: boolean; onRules: (r: Rules) => void;
+    onPick: (id: string) => void; onReady: () => void; onBack: () => void;
+  }) {
+    this.menu.classList.add('hidden');
+    this.results.classList.add('hidden');
+    this.race.classList.add('hidden');
+    this.pick.classList.remove('hidden');
+    this.pick.innerHTML = `
+      <div class="pick-top">
+        <button class="back-btn" aria-label="กลับ">‹</button>
+        <div class="pick-title"><b>เลือกนักวิ่ง</b>
+          <button class="rules-btn" ${o.canEdit ? '' : 'disabled'}>${rulesLine(o.rules)}<i>${o.canEdit ? '⚙' : '🔒'}</i></button>
+        </div>
+      </div>
+      <div class="rules modal hidden"><div class="help-card rules-card"></div></div>
+      <div class="ltags"></div>
+      <div class="pick-panel">
+        <div class="pick-strip">${o.chars.map((c) => `<button class="pcard" data-id="${c.id}"><i>${ROLE_ICON[bestStat(c.stats ?? BASE_STATS)]}</i><b>${c.name}</b><em></em></button>`).join('')}</div>
+        <div class="pick-info">
+          <div class="pick-name"><b class="who-name"></b><span class="who-role"></span></div>
+          <div class="stats">${STAT_NAMES.map(([k, label]) => `<div class="stat s-${k}" data-stat="${k}"><span>${label}</span><i>${'<b></b>'.repeat(STAT_MAX)}</i></div>`).join('')}</div>
+        </div>
+        <button class="ready-btn"><span class="ready-label">พร้อม!</span><small class="ready-note">แตะเพื่อเริ่มนับถอยหลัง</small></button>
+      </div>`;
+    const cards = [...this.pick.querySelectorAll<HTMLButtonElement>('.pcard')];
+    const show = (id: string) => {
+      const c = o.chars.find((ch) => ch.id === id)!;
+      const stats = c.stats ?? BASE_STATS;
+      const name = this.pick.querySelector<HTMLElement>('.who-name')!;
+      name.textContent = c.name;
+      this.pick.querySelector('.who-role')!.textContent = roleOf(stats);
+      for (const [k] of STAT_NAMES) {
+        this.pick.querySelectorAll(`.stat[data-stat="${k}"] b`).forEach((pip, i) => pip.classList.toggle('on', i < stats[k]));
+      }
+      cards.forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+      name.classList.remove('swap');
+      void name.offsetWidth;
+      name.classList.add('swap');
+    };
+    this.setTaken(o.taken);
+    show(o.selected);
+    cards.find((b) => b.dataset.id === o.selected)?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    cards.forEach((b) => {
+      b.onclick = () => {
+        if (b.classList.contains('on') || this.pick.classList.contains('locked')) return;
+        sound.select();
+        show(b.dataset.id!);
+        o.onPick(b.dataset.id!);
+      };
+    });
+    this.pick.querySelector<HTMLButtonElement>('.ready-btn')!.onclick = () => { sound.click(); o.onReady(); };
+    if (o.canEdit) this.pick.querySelector<HTMLButtonElement>('.rules-btn')!.onclick = () => this.rulesSheet(o.rules, o.onRules);
+    this.pick.querySelector<HTMLButtonElement>('.back-btn')!.onclick = () => { sound.tap(); o.onBack(); };
+  }
+
+  /** Race settings: map, lanes and which items are in play. Applied when closed. */
+  private rulesSheet(current: Rules, apply: (r: Rules) => void) {
+    sound.tap();
+    const r: Rules = { ...current, items: [...current.items] };
+    const box = this.pick.querySelector<HTMLElement>('.rules')!;
+    const card = box.querySelector<HTMLElement>('.rules-card')!;
+    const draw = () => {
+      const allOn = r.items.length === ITEM_KINDS.length;
+      card.innerHTML = `<div class="help-title">ตั้งค่าการแข่ง</div>
+        <div class="rule-h">ด่าน</div>
+        <div class="maps">${MAP_IDS.map((m) => `<button class="map ${m === r.map ? 'on' : ''}" data-map="${m}"><span>${MAPS[m].flag}</span>${MAPS[m].name}</button>`).join('')}</div>
+        <div class="rule-h">ลู่วิ่ง</div>
+        <div class="lanes">${LANE_CHOICES.map((n) => `<button class="lane-n ${n === r.lanes ? 'on' : ''}" data-lanes="${n}"><b>${n}</b> เลน<i>${'<u></u>'.repeat(n)}</i></button>`).join('')}</div>
+        <div class="rule-h">ไอเท็ม <button class="all-items ${allOn ? 'on' : ''}" data-all>${allOn ? 'ปิดทั้งหมด' : 'เปิดทั้งหมด'}</button></div>
+        <div class="itoggles">${ITEM_KINDS.map((k) => `<button class="itog ${r.items.includes(k) ? 'on' : ''}" data-item="${k}"><i>${ITEM_ICON[k]}</i><span>${ITEM_NAME[k]}</span></button>`).join('')}</div>
+        ${r.items.length ? '' : '<div class="sheet-note">ปิดไอเท็มหมด: ไม่มีกล่อง ? บนสนาม วัดกันที่ฝีเท้าล้วน ๆ</div>'}
+        <button class="help-close" data-done>เสร็จ</button>`;
+      card.querySelectorAll<HTMLButtonElement>('.map').forEach((b) => { b.onclick = () => { sound.select(); r.map = b.dataset.map as MapId; draw(); }; });
+      card.querySelectorAll<HTMLButtonElement>('.lane-n').forEach((b) => { b.onclick = () => { sound.select(); r.lanes = Number(b.dataset.lanes); draw(); }; });
+      card.querySelectorAll<HTMLButtonElement>('.itog').forEach((b) => {
+        b.onclick = () => {
+          sound.select();
+          const k = b.dataset.item as ItemKind;
+          r.items = r.items.includes(k) ? r.items.filter((x) => x !== k) : ITEM_KINDS.filter((x) => x === k || r.items.includes(x));
+          draw();
+        };
+      });
+      card.querySelector<HTMLButtonElement>('[data-all]')!.onclick = () => { sound.select(); r.items = allOn ? [] : [...ITEM_KINDS]; draw(); };
+      card.querySelector<HTMLButtonElement>('[data-done]')!.onclick = () => { box.classList.add('hidden'); apply(r); };
+    };
+    draw();
+    box.onclick = (e) => { if (e.target === box) { box.classList.add('hidden'); apply(r); } };
+    box.classList.remove('hidden');
+  }
+
+  /** Who else is standing on the line, by character id, written on their cards. */
+  setTaken(taken: Record<string, string>) {
+    this.pick.querySelectorAll<HTMLElement>('.pcard').forEach((b) => {
+      b.querySelector('em')!.textContent = taken[b.dataset.id!] ?? '';
+      b.classList.toggle('taken', !!taken[b.dataset.id!]);
+    });
+  }
+
+  /** Ready button: label, the line under it, whether it can be pressed; `locked` stops further picks. */
+  setReady(label: string, note: string, enabled: boolean, locked = false) {
+    const b = this.pick.querySelector<HTMLButtonElement>('.ready-btn');
+    if (!b) return;
+    b.querySelector('.ready-label')!.textContent = label;
+    b.querySelector('.ready-note')!.textContent = note;
+    b.disabled = !enabled;
+    this.pick.classList.toggle('locked', locked);
+  }
+
+  /** One tag per runner on the line: lane number, name, and "you" on yours. */
+  setPickTags(tags: { lane: number; name: string; me: boolean; friend?: boolean }[]) {
+    const box = this.pick.querySelector<HTMLElement>('.ltags');
+    if (!box) return;
+    box.innerHTML = tags.map((t) => `<div class="ltag ${t.me ? 'me' : t.friend ? 'friend' : ''}" data-lane="${t.lane}"><u>${t.lane}</u><span>${t.me ? 'คุณ' : t.friend ? 'เพื่อน' : 'บอท'}</span><b>${t.name}</b></div>`).join('');
+  }
+
+  /** Keep the tags over the runners' heads (screen px; null hides one). */
+  placePickTags(points: ({ x: number; y: number } | null)[]) {
+    this.pick.querySelectorAll<HTMLElement>('.ltag').forEach((t, i) => {
+      const p = points[i];
+      t.classList.toggle('on', !!p);
+      // Neighbours' tags alternate in height so they never sit on top of each other.
+      if (p) t.style.transform = `translate(${p.x.toFixed(1)}px, ${(p.y - (Number(t.dataset.lane) % 2) * 26).toFixed(1)}px) translate(-50%, -100%)`;
+    });
+  }
+
+  /** Screen space the pick panel covers (bottom on phones, right on wide screens) and the title on top. */
+  pickInsets() {
+    const panel = this.pick.querySelector<HTMLElement>('.pick-panel');
+    const top = this.pick.querySelector<HTMLElement>('.pick-top');
+    const side = this.panelAtSide();
+    return {
+      top: top ? top.offsetTop + top.offsetHeight : 0,
+      bottom: panel && !side ? innerHeight - panel.offsetTop : 0,
+      right: panel && side ? innerWidth - panel.offsetLeft : 0,
+    };
   }
 
   startRace(racers: Racer[]) {
     this.menu.classList.add('hidden');
     this.results.classList.add('hidden');
+    this.pick.classList.add('hidden');
     this.race.classList.remove('hidden');
     this.dots.forEach((d) => d.remove());
     this.dots = racers.map((r) => {
@@ -232,7 +428,7 @@ export class Hud {
     });
     this.setFocus(0);
     this.setItem(null, false);
-    this.setFlight(0);
+    this.setTimers([]);
     this.inkBox.classList.remove('show');
   }
 
@@ -254,13 +450,13 @@ export class Hud {
     if (p) this.itemBtn.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -50%)`;
   }
 
-  /** Rocket fuel left (s); 0 hides the gauge. */
-  setFlight(left: number) {
-    const shown = left > 0 ? Math.ceil(left) : 0;
-    if (shown === this.flightShown) return;
-    this.flightShown = shown;
-    this.flight.classList.toggle('show', shown > 0);
-    if (shown) this.flight.textContent = `🚀 ${shown}`;
+  /** Seconds left on the timed items (rocket, shield, spring); none running hides the chip. */
+  setTimers(timers: [icon: string, left: number][]) {
+    const text = timers.filter(([, left]) => left > 0).map(([icon, left]) => `${icon} ${Math.ceil(left)}`).join('  ');
+    if (text === this.flightShown) return;
+    this.flightShown = text;
+    this.flight.classList.toggle('show', !!text);
+    if (text) this.flight.textContent = text;
   }
 
   /** Ink over the screen for `time` seconds. */
@@ -360,7 +556,7 @@ export class Hud {
   }
 
   /** Ceremony overlay; `sorted` is the finishing order. Tags follow the podium via `placeTags`. */
-  showResults(sorted: Racer[], mapLabel: string, onAgain: (btn: HTMLButtonElement) => void, onMenu: () => void) {
+  showResults(sorted: Racer[], mapLabel: string, reward: number, onAgain: (btn: HTMLButtonElement) => void, onMenu: () => void) {
     const place = sorted.findIndex((r) => r.isPlayer) + 1;
     const me = sorted[place - 1];
     const best = sorted[0].finished ? sorted[0].finishTime : 0;
@@ -372,6 +568,7 @@ export class Hud {
     this.race.classList.add('hidden');
     this.root.classList.remove('zone', 'dashing');
     this.inkBox.classList.remove('show');
+    this.pick.classList.add('hidden');
     this.results.classList.remove('hidden');
     this.results.className = `results p${Math.min(place, 4)}`;
     this.results.innerHTML = `
@@ -379,6 +576,7 @@ export class Hud {
         <div class="res-kicker">${mapLabel} · ผลการแข่งขัน</div>
         <div class="res-title">${title}</div>
         <div class="res-sub">${sub} · <b>${result(me)}</b></div>
+        ${reward ? `<div class="res-coins">+${reward} <span class="coin"></span></div>` : ''}
       </div>
       <div class="tags">${sorted.map((r, i) => `<div class="tag ${r.isPlayer ? 'me' : ''} t${Math.min(i, 3)}">${medal(i)}<span>${r.name}</span></div>`).join('')}</div>
       <div class="res-panel">
@@ -403,14 +601,21 @@ export class Hud {
     };
   }
 
-  /** Screen space the menu's logo (top) and panel (bottom) cover, for framing the runner between them. */
+  /** Wide screens put the menu panel on the right instead of along the bottom. */
+  private panelAtSide() {
+    return matchMedia('(min-aspect-ratio: 5/4) and (min-width: 820px)').matches; // matches the CSS
+  }
+
+  /** Screen space the menu's logo (top) and panel (bottom or right) cover, for framing the runner beside them. */
   menuInsets() {
     const top = this.menu.querySelector<HTMLElement>('.menu-top');
     const panel = this.menu.querySelector<HTMLElement>('.panel');
+    const side = !!panel && this.panelAtSide();
     return {
       top: top ? top.offsetTop + top.offsetHeight : 0,
       // The "choose a runner" chip pokes out above the panel.
-      bottom: panel ? innerHeight - panel.offsetTop + 22 : 0,
+      bottom: panel && !side ? innerHeight - panel.offsetTop + 22 : 0,
+      right: panel && side ? innerWidth - panel.offsetLeft : 0,
     };
   }
 

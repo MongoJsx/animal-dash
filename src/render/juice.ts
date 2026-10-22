@@ -6,11 +6,10 @@
 // spawned. What pops round the player rides in a second layer that follows
 // them, so it stays with them however their speed changes.
 import * as THREE from 'three';
-import { ITEM, RACE_LENGTH, laneX } from '../config.ts';
+import { ITEM, RACE_LENGTH, TRACK_HALF, laneX } from '../config.ts';
 import type { ItemKind, ItemBox } from '../world/items.ts';
 import type { TrackPath } from '../world/path.ts';
 import { Cell, Dizzy, SpeedLines, Sprites, type SpriteOpts } from './fx.ts';
-import { TRACK_HALF } from './scenery.ts';
 
 /** What the effects need to know about a runner (player, rival or online friend). */
 export interface Runner { x: number; y: number; d: number; speed: number }

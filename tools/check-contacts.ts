@@ -1,7 +1,8 @@
 // Racer-vs-racer contact: crowd a lane with runners at the start, swerve into
-// the pack and dash through it; check no two bodies ever overlap.
+// the pack and dash through it, then run it out past the line; check no two
+// bodies ever overlap, whatever their strength.
 // Usage: npx tsx tools/check-contacts.ts
-import { BODY, START_SLOTS, TICK } from '../src/config.ts';
+import { BODY, LANES, TICK, laneX, setLaneCount } from '../src/config.ts';
 import { resolveContacts } from '../src/entities/contact.ts';
 import { Player } from '../src/entities/player.ts';
 import { Rival } from '../src/entities/rival.ts';
@@ -11,17 +12,23 @@ import { buildTrack } from '../src/world/track.ts';
 let failures = 0;
 let bumps = 0, dashes = 0, stuns = 0, barges = 0, shoved = 0;
 for (let seed = 1; seed <= 60; seed++) {
+  setLaneCount(3 + (seed % 3));
   const track = buildTrack(seed, (['thai', 'china', 'japan'] as const)[seed % 3]);
   const p = new Player();
-  p.startSlot(START_SLOTS[0], -1);
-  const rivals = [[1, 0], [2, 1], [3, 1]].map(([slot, lane], i) =>
-    new Rival(seed * 7 + i, { mistake: 0.3, pace: 1 }, START_SLOTS[slot], lane));
+  p.startSlot(laneX(LANES[0]), LANES[0]);
+  p.stats = { speed: 3, accel: 3, strength: 1 + (seed % 5), stamina: 3 };
+  // One rival in every other lane, plus one more crowding the second lane.
+  const rivals = [...LANES.slice(1), LANES[1]].map((lane, i) =>
+    new Rival(seed * 7 + i, { mistake: 0.3, pace: 1 }, laneX(lane) + (i === LANES.length - 1 ? 0.8 : 0), lane,
+      { speed: 3, accel: 3, strength: 1 + ((seed + i * 2) % 5), stamina: 3 }));
   // Everyone leaves the blocks together.
   p.launch();
   for (const r of rivals) r.launch();
   let t = 0;
   // The player keeps swerving into the pack.
-  for (let step = 0; step < 60 * 40 && !p.finished; step++) {
+  let after = 0;
+  for (let step = 0; step < 60 * 200 && after < 60 * 4; step++) {
+    if ([p, ...rivals].every((r) => r.finished)) after++;
     t += TICK;
     const actions: Action[] = step % 50 === 0 ? [(step / 50) % 2 ? 'left' : 'right'] : [];
     if (p.dashReady) actions.push('dash');
@@ -33,13 +40,17 @@ for (let seed = 1; seed <= 60; seed++) {
       if (e.type === 'dash') dashes++;
     }
     p.events.length = 0;
-    for (const r of rivals) r.step(TICK, track, p.d, [p, ...rivals.filter((o) => o !== r)]);
+    if (!p.finished && p.d >= 400) p.finish(t);
+    for (const r of rivals) {
+      r.step(TICK, track, p.d, [p, ...rivals.filter((o) => o !== r)]);
+      if (!r.finished && r.d >= 400) r.finish(t);
+    }
     resolveContacts([p, ...rivals]);
     const all = [p, ...rivals];
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
       const a = all[i], b = all[j];
       if (Math.abs(a.x - b.x) < BODY.width - 0.05 && Math.abs(a.d - b.d) < BODY.depth - 0.05 && Math.abs(a.y - b.y) < 1.3) {
-        console.log(`seed ${seed} t=${t.toFixed(2)}: overlap ${i}/${j} dx=${(a.x - b.x).toFixed(2)} dd=${(a.d - b.d).toFixed(2)}`);
+        console.log(`seed ${seed} t=${t.toFixed(2)}: overlap ${i}/${j} dx=${(a.x - b.x).toFixed(2)} dd=${(a.d - b.d).toFixed(2)}`, all.map((o) => `${o.x.toFixed(2)},${o.d.toFixed(1)},${o.y.toFixed(1)}${o.finished ? "F" : ""}${o.dashing ? "D" : ""}`).join(" "));
         failures++;
         step = 1e9;
         break;

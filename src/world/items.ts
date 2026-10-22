@@ -1,9 +1,10 @@
 // Item boxes: placed from the seed in the gaps between obstacle rows (so every
 // client gets the same boxes), and the item each one gives when run through.
-import { BIOME_LENGTH, ITEM, LANE_WIDTH, PLAYER, RACE_LENGTH, laneX } from '../config.ts';
+import { BIOME_LENGTH, ITEM, LANE_COUNT, LANES, LANE_WIDTH, PLAYER, RACE_LENGTH, laneX } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 
 export type ItemKind = 'boost' | 'shield' | 'ink' | 'spring' | 'rocket';
+export const ITEM_KINDS: ItemKind[] = ['boost', 'shield', 'ink', 'spring', 'rocket'];
 
 export const ITEM_ICON: Record<ItemKind, string> = { boost: '⚡', shield: '🛡️', ink: '🦑', spring: '🦘', rocket: '🚀' };
 export const ITEM_NAME: Record<ItemKind, string> = { boost: 'บูสต์', shield: 'โล่', ink: 'หมึก', spring: 'สปริง', rocket: 'จรวด' };
@@ -32,7 +33,7 @@ export function placeItems(seed: number, rows: { d0: number; d1: number }[]): It
     if (gate > 0 && gate < RACE_LENGTH && Math.abs(d - gate) < GATE_CLEAR) continue;
     if (d - last < MIN_SPACING || !rng.chance(0.55)) continue;
     last = d;
-    const lanes = rng.chance(0.4) ? [-1, 0, 1] : rng.shuffle([-1, 0, 1]).slice(0, 2);
+    const lanes = rng.chance(0.4) ? LANES : rng.shuffle([...LANES]).slice(0, LANE_COUNT - 1);
     for (const lane of lanes) out.push({ id: out.length, lane, d });
   }
   return out;
@@ -50,8 +51,8 @@ export function touches(box: ItemBox, x: number, y: number, d: number) {
  * someone is ahead to splatter.
  * @param behind 0 = leading … 1 = last
  */
-export function rollItem(r: number, behind: number, anyoneAhead: boolean): ItemKind {
-  const weights: [ItemKind, number][] = [
+export function rollItem(r: number, behind: number, anyoneAhead: boolean, allowed: readonly ItemKind[] = ITEM_KINDS): ItemKind | null {
+  const all: [ItemKind, number][] = [
     ['boost', 1 + 2 * behind],
     ['shield', 1.3 - 0.5 * behind],
     ['ink', anyoneAhead ? 0.5 + 1.5 * behind : 0],
@@ -59,7 +60,10 @@ export function rollItem(r: number, behind: number, anyoneAhead: boolean): ItemK
     // The big one: mostly for whoever is falling behind.
     ['rocket', 0.15 + 0.85 * behind],
   ];
+  // Only the items switched on for this race (none left to give: no item).
+  const weights = all.filter(([k, w]) => allowed.includes(k) && w > 0);
+  if (!weights.length) return null;
   let x = r * weights.reduce((s, [, w]) => s + w, 0);
   for (const [k, w] of weights) if ((x -= w) <= 0) return k;
-  return 'spring';
+  return weights[weights.length - 1][0];
 }

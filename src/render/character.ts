@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import type { Stats } from '../config.ts';
 import { assetUrl } from '../core/asset.ts';
 import { ProcRig, type RigStyle } from './rig.ts';
 
@@ -13,12 +14,14 @@ export interface CharacterDef {
   name: string;
   model: string;
   anim?: RigStyle;
+  stats?: Stats;
 }
 
 export type AnimState =
   | 'idle' | 'run' | 'jump' | 'slide' | 'stumble' | 'fall'
   | 'strafe_left' | 'strafe_right' | 'victory' | 'defeat'
-  | 'marks' | 'set' | 'burst'; // sprint start: on your marks, set, drive out
+  | 'marks' | 'set' | 'burst' // sprint start: on your marks, set, drive out
+  | 'fly'; // on a rocket pack: lying flat, one fist forward
 
 const ONE_SHOT: AnimState[] = ['jump', 'slide', 'stumble', 'fall', 'strafe_left', 'strafe_right', 'burst'];
 const HEIGHT = 1.7;
@@ -290,6 +293,10 @@ export class CharacterView {
         break;
       case 'defeat':
         p.rotation.x = 0.3;
+        break;
+      case 'fly':
+        p.rotation.x = -1.35;
+        p.position.set(0, 0.9, -0.2);
         break;
       default:
         p.position.y = Math.sin(this.procTime * 2) * 0.02;

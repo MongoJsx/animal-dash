@@ -1,6 +1,9 @@
 // Player simulation: auto-run, lane changes, jump/slide, collisions that cost
 // speed instead of lives, and the Focus streak. Pure logic, no rendering.
-import { BODY, DASH, FOCUS, ITEM, PENALTY, PLAYER, RACE_LENGTH, START_BOOST, baseSpeed, laneX, runOut } from '../config.ts';
+import {
+  BASE_STATS, BODY, DASH, FOCUS, ITEM, LANE_MAX, LANE_MIN, PENALTY, PLAYER, RACE_LENGTH, START_BOOST, baseSpeed, clampLane, laneAfterPush, laneX, nearestLane, runOut,
+  statFocusGain, statFocusKeep, statPace, statSideLoss, type Stats,
+} from '../config.ts';
 import type { Action } from '../core/input.ts';
 import type { ItemKind } from '../world/items.ts';
 import {
@@ -27,7 +30,9 @@ export type PlayerEvent =
   | { type: 'barged' } // barged someone else aside
   | { type: 'pickup'; item: ItemKind }
   | { type: 'item'; item: ItemKind } // used it
-  | { type: 'shieldBlock' } // the shield took a hit
+  | { type: 'shieldBlock' } // the shield stopped something
+  | { type: 'shieldEnd' } // the shield wore off
+  | { type: 'springEnd' } // back to normal jumps
   | { type: 'inked' }
   | { type: 'rocketEnd' } // out of fuel: dropping back to the track
   | { type: 'finish' };
@@ -63,6 +68,10 @@ export class Player {
   private invulnT = 0;
   fallT = 0;
   focus = 0;
+  /** Progress toward the next Focus level (accel builds it faster). */
+  private focusPart = 0;
+  /** The character's stats (speed, accel, strength, stamina). */
+  stats: Stats = BASE_STATS;
   finished = false;
   finishTime = 0;
   /** Stopped short of the line because someone else won. */
@@ -76,7 +85,10 @@ export class Player {
   items: ItemKind[] = [];
   itemRoll = 0;
   itemBoostT = 0;
-  shield = false;
+  /** Seconds of shield left: nothing gets through while it's up. */
+  shieldT = 0;
+  /** Seconds of spring jumps left. */
+  springT = 0;
   /** In the air off a spring: clears everything until landing. */
   springing = false;
   /** Seconds of rocket flight left. */
@@ -87,6 +99,14 @@ export class Player {
 
   get sliding() {
     return this.slideT > 0;
+  }
+
+  get shield() {
+    return this.shieldT > 0;
+  }
+
+  get strength() {
+    return this.stats.strength;
   }
 
   get stunned() {
@@ -122,6 +142,7 @@ export class Player {
   /** Splattered by someone behind. */
   ink() {
     if (this.finished) return;
+    if (this.shield) { this.shieldBlock(); return; }
     this.inkT = ITEM.inkTime;
     this.emit({ type: 'inked' });
   }
@@ -132,13 +153,14 @@ export class Player {
       case 'boost':
         this.itemBoostT = ITEM.boostTime;
         this.speedMul = 1;
+        this.setFocus(this.focus + ITEM.boostFocus);
         break;
       case 'shield':
-        this.shield = true;
+        this.shieldT = ITEM.shieldTime;
         break;
       case 'spring':
-        this.jump(ITEM.springVelocity, 'bounce');
-        this.springing = true;
+        // Spring legs: every jump for a while is a big one (no jump by itself).
+        this.springT = ITEM.springTime;
         break;
       case 'rocket':
         this.flyT = ITEM.flyTime;
@@ -151,10 +173,17 @@ export class Player {
     this.emit({ type: 'item', item });
   }
 
+  /** Something bounced off the shield (it stays up until its time runs out). */
   private shieldBlock() {
-    this.shield = false;
-    this.invulnT = Math.max(this.invulnT, 0.4);
+    if (this.blockT > 0) return;
+    this.blockT = 0.35;
     this.emit({ type: 'shieldBlock' });
+  }
+  private blockT = 0;
+
+  private springJump() {
+    this.jump(ITEM.springVelocity, 'bounce');
+    this.springing = true;
   }
 
   get dashReady() {
@@ -185,8 +214,7 @@ export class Player {
     this.x += push;
     this.jolt = Math.sign(push);
     this.laneFrom = this.currentLaneFloat();
-    const lane = Math.max(-1, Math.min(1, push > 0 ? Math.ceil(this.laneFrom - 0.25) : Math.floor(this.laneFrom + 0.25)));
-    this.lane = lane;
+    this.lane = laneAfterPush(this.laneFrom, push);
     this.laneT = 0;
     this.laneTime = 0.25;
   }
@@ -248,7 +276,7 @@ export class Player {
     this.x += push;
     this.jolt = dir;
     this.laneFrom = this.currentLaneFloat();
-    this.lane = Math.max(-1, Math.min(1, Math.round(this.laneFrom - push / laneX(1)) + dir));
+    this.lane = clampLane(nearestLane(this.x - push) + dir);
     this.laneT = 0;
     this.laneTime = 0.3;
     this.speedMul = Math.min(this.speedMul, 0.9);
@@ -266,6 +294,12 @@ export class Player {
     this.bumpT = 0.6;
   }
 
+  /** Pushed out of someone (the lane change still steers it back next step). */
+  nudge(dx: number, dd: number) {
+    this.x += dx;
+    this.d += dd;
+  }
+
   /** Shouldered someone while changing lanes: bounce back. */
   sideBump(push = 0) {
     this.x += push;
@@ -274,7 +308,7 @@ export class Player {
       this.laneFrom = this.currentLaneFloat();
       return;
     }
-    const back = Math.round(this.laneFrom);
+    const back = nearestLane(laneX(this.laneFrom));
     this.laneFrom = this.currentLaneFloat();
     this.lane = back;
     this.laneT = 0;
@@ -294,7 +328,7 @@ export class Player {
 
   private changeLane(dir: -1 | 1) {
     const target = this.lane + dir;
-    if (target < -1 || target > 1) return;
+    if (target < LANE_MIN || target > LANE_MAX) return;
     this.laneFrom = this.currentLaneFloat();
     this.lane = target;
     this.laneT = 0;
@@ -338,6 +372,9 @@ export class Player {
     this.itemRoll = Math.max(0, this.itemRoll - dt);
     this.itemBoostT = Math.max(0, this.itemBoostT - dt);
     this.inkT = Math.max(0, this.inkT - dt);
+    this.blockT = Math.max(0, this.blockT - dt);
+    if (this.shieldT > 0 && (this.shieldT -= dt) <= 0) { this.shieldT = 0; this.emit({ type: 'shieldEnd' }); }
+    if (this.springT > 0 && (this.springT -= dt) <= 0) { this.springT = 0; this.emit({ type: 'springEnd' }); }
     if (this.dashT > 0) {
       this.dashT = Math.max(0, this.dashT - dt);
       if (this.dashT === 0) this.invulnT = Math.max(this.invulnT, 0.3);
@@ -362,7 +399,8 @@ export class Player {
         case 'right': this.changeLane(1); return false;
         case 'jump':
           if (!this.grounded) return true;
-          this.jump(PLAYER.jumpVelocity, 'jump');
+          if (this.springT > 0) this.springJump();
+          else this.jump(PLAYER.jumpVelocity, 'jump');
           return false;
         case 'slide':
           if (!this.grounded) {
@@ -391,11 +429,12 @@ export class Player {
       }
     }
     const focusMul = 1 + this.focus * FOCUS.bonusPerLevel;
+    const base = baseSpeed(this.d) * statPace(this.stats);
     this.speed = this.finished
       ? runOut(this.speed, dt)
       : this.stunT > 0 ? 0
-      : this.dashing ? baseSpeed(this.d) * focusMul * DASH.mul
-      : baseSpeed(this.d) * focusMul * this.speedMul * floorMul * (1 + this.boost) *
+      : this.dashing ? base * focusMul * DASH.mul
+      : base * focusMul * this.speedMul * floorMul * (1 + this.boost) *
         (this.itemBoostT > 0 ? ITEM.boostMul : 1) * (this.flying ? ITEM.rocketMul : 1);
     const before = this.d;
     this.d += this.speed * dt;
@@ -438,8 +477,8 @@ export class Player {
     for (const o of near) {
       trigger(o, t, this.d, this.speed);
       if (o.hit || this.finished) continue;
-      if (this.dashing) {
-        // Nothing stops a dash: plough through and leave nothing standing.
+      if (this.dashing || this.itemBoostT > 0) {
+        // Nothing stops a dash or a boost: plough through and leave nothing standing.
         if (o.kind === 'gap' || o.kind === 'slow' || o.kind === 'bounce') continue;
         boxes.length = 0;
         hitBoxes(o, t, boxes);
@@ -454,7 +493,6 @@ export class Player {
         if (o.kind === 'gap' && onFloor(o, this.x, this.d)) {
           if (this.shield) {
             // The shield takes the fall: hop over instead.
-            o.hit = true;
             this.shieldBlock();
             this.jump(PLAYER.jumpVelocity, 'jump');
           } else this.fall(o);
@@ -520,7 +558,7 @@ export class Player {
   private sideHit(o: Obstacle) {
     this.smash(o);
     // Bounce back to where we came from.
-    const back = Math.round(this.laneFrom);
+    const back = nearestLane(laneX(this.laneFrom));
     this.laneFrom = this.currentLaneFloat();
     this.lane = back;
     this.laneT = 0;
@@ -528,7 +566,7 @@ export class Player {
     this.speedMul = Math.min(this.speedMul, PENALTY.sideHit.speed);
     this.recoverRate = (1 - PENALTY.sideHit.speed) / PENALTY.sideHit.recover;
     this.invulnT = 0.25;
-    this.setFocus(this.focus - FOCUS.sideHitLoss);
+    this.setFocus(this.focus - statSideLoss(this.stats));
     this.markRow(this.nextRow);
     this.emit({ type: 'sidehit' });
   }
@@ -539,7 +577,7 @@ export class Player {
     this.recoverRate = (1 - PENALTY.stumble.speed) / PENALTY.stumble.recover;
     this.invulnT = PENALTY.stumble.invulnerable;
     this.slideT = 0;
-    this.setFocus(0);
+    this.loseFocus();
     this.markRow(o.row);
     this.emit({ type: 'stumble', obstacle: o });
   }
@@ -551,12 +589,18 @@ export class Player {
     this.speedMul = PENALTY.fall.speed;
     this.recoverRate = (1 - PENALTY.fall.speed) / PENALTY.fall.recover;
     this.invulnT = PENALTY.fall.duration;
-    this.setFocus(0);
+    this.loseFocus();
     this.markRow(o.row);
     this.emit({ type: 'fall' });
   }
 
+  /** Ran into something: stamina keeps some of the Focus. */
+  private loseFocus() {
+    this.setFocus(Math.floor(this.focus * statFocusKeep(this.stats)));
+  }
+
   private setFocus(v: number) {
+    this.focusPart = 0;
     const next = Math.max(0, Math.min(FOCUS.max, v));
     if (next !== this.focus) {
       this.focus = next;
@@ -573,7 +617,11 @@ export class Player {
     while (this.nextRow < track.rows.length && track.rows[this.nextRow].d1 < this.d - 0.5) {
       const r = this.nextRow++;
       const hazardous = track.obstacles.some((o) => o.row === r && isHazard(o.kind));
-      if (hazardous && !this.dirtyRows.has(r)) this.setFocus(this.focus + 1);
+      if (!hazardous || this.dirtyRows.has(r) || this.focus >= FOCUS.max) continue;
+      const part = this.focusPart + statFocusGain(this.stats);
+      const levels = Math.floor(part);
+      if (levels) this.setFocus(this.focus + levels);
+      this.focusPart = part - levels;
     }
   }
 
@@ -585,6 +633,7 @@ export class Player {
     this.dashT = 0;
     this.itemBoostT = 0;
     this.slideT = 0;
+    this.springT = 0;
   }
 
   finish(t: number) {

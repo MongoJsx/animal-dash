@@ -1,9 +1,10 @@
 // Ties simulation, rendering and UI together: menu → countdown → race → results.
 import * as THREE from 'three';
-import { DASH, ITEM, PLAYER, laneX, RACE_LENGTH, RIVAL_COUNT, START_SLOTS, TICK, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED } from './config.ts';
+import { BASE_STATS, BODY, DASH, ITEM, LANES, LANE_COUNT, PLAYER, laneX, RACE_LENGTH, TICK, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED, setLaneCount, laneIndex, nearestLane } from './config.ts';
 import { COUNTDOWN_GO, sound, type Surface } from './core/audio.ts';
 import { DOUBLE_GAP, Input, type Action } from './core/input.ts';
 import { Rng } from './core/rng.ts';
+import { profile, recordRace, saveProfile } from './core/profile.ts';
 import { botActions } from './entities/bot.ts';
 import { resolveContacts } from './entities/contact.ts';
 import { Player, type PlayerEvent } from './entities/player.ts';
@@ -25,26 +26,25 @@ import { Podium } from './render/podium.ts';
 import { Hud, byFinish, desktop, type Racer } from './ui/hud.ts';
 import { BIOMES, MAPS, biomeAt, isMapId, type BiomeId, type MapId } from './world/biomes.ts';
 import { sunDirection } from './render/sky.ts';
-import { ITEM_ICON, ITEM_NAME, rollItem, touches, type ItemKind } from './world/items.ts';
-import { movingD, type Obstacle } from './world/obstacles.ts';
+import { ITEM_ICON, ITEM_KINDS, ITEM_NAME, rollItem, touches, type ItemKind } from './world/items.ts';
+import { hitBoxes, movingD, spansTrack, type Box, type Obstacle } from './world/obstacles.ts';
 import { TrackPath } from './world/path.ts';
 import { buildTrack, type Track } from './world/track.ts';
 
 installBend();
 installGrade();
 
-type State = 'menu' | 'countdown' | 'race' | 'done' | 'results';
+type State = 'menu' | 'pick' | 'countdown' | 'race' | 'done' | 'results';
 
 const SKILLS: RivalSkill[] = [
   { mistake: 0.1, pace: 1.0 },
   { mistake: 0.18, pace: 0.99 },
   { mistake: 0.27, pace: 0.985 },
+  { mistake: 0.22, pace: 0.99 },
 ];
-const COLORS = ['#ffb703', '#ef476f', '#06d6a0', '#118ab2'];
-// Starting box → lane after the merge. The player takes box 1 (nearest the
-// start camera); rivals the rest, two of them fighting for the right lane.
-const PLAYER_SLOT = 0;
-const RIVAL_SLOTS: [slot: number, lane: number][] = [[1, 0], [2, 1], [3, 1]];
+const COLORS = ['#e04a3a', '#f6b73c', '#4fae6a', '#2a7fd4', '#8a6bd1'];
+/** Which lane (index from the left) is yours: the middle one; online, the guest takes the one beside the host. */
+const myLaneIndex = (guest = false) => Math.floor((LANE_COUNT - 1) / 2) + (guest ? 1 : 0);
 const airTime = (v: number) => (2 * v) / PLAYER.gravity;
 
 // Start sequence: "On your marks", then the 3-2-1 count (a beep a second, the
@@ -70,6 +70,7 @@ interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterD
 const POP_COLORS = [0x7ae0ff, 0xffffff, 0xbdf3ff];
 const INK_COLORS = [0x120c24, 0x2a1f4d, 0x000000];
 const BOX_COLORS = [0xffe066, 0xff9f1c, 0xff5d8f, 0xffffff];
+const rivalBoxes: Box[] = [];
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -91,6 +92,15 @@ export class Game {
   private state: State = 'menu';
   private chars: CharacterDef[];
   private selected: string;
+  /** Lanes on the track (3–5) = runners in a solo race. */
+  private laneCount = profile.lanes ?? 3;
+  /** Items switched on for the race (none: no item boxes on the track). */
+  private itemsOn: ItemKind[] = ITEM_KINDS.filter((k) => !profile.items || profile.items.includes(k));
+  /** Seed of the field standing on the line in the runner select. */
+  private fieldSeed = 0;
+  /** Online runner select: who has pressed ready. */
+  private readyMe = false;
+  private readyFriend = false;
   private track!: Track;
   private path!: TrackPath;
   private camTarget = new THREE.Vector3();
@@ -135,7 +145,8 @@ export class Game {
     this.chars = chars;
     preloadCharacters(chars);
     const params = new URLSearchParams(location.search);
-    this.selected = chars.find((c) => c.id === params.get('char'))?.id ?? chars[0].id;
+    this.selected = chars.find((c) => c.id === (params.get('char') ?? profile.char))?.id ?? chars[0].id;
+    if (params.get('lanes')) this.laneCount = Number(params.get('lanes'));
     let saved: string | null = null;
     try { saved = localStorage.getItem('map'); } catch { /* private mode */ }
     const wanted = params.get('map') ?? saved;
@@ -231,7 +242,9 @@ export class Game {
     for (const r of this.rivals) this.scene.remove(r.view.root, r.bubble.mesh, r.rocket.root, r.tag.sprite);
     this.rivals = [];
 
+    setLaneCount(this.laneCount);
     this.track = buildTrack(seed, this.map);
+    if (!this.itemsOn.length) this.track.items = [];
     if (this.itemBoxes) {
       this.scene.remove(this.itemBoxes.mesh);
       this.itemBoxes.dispose();
@@ -251,7 +264,8 @@ export class Game {
     this.env.snapLook(0);
     this.scene.add(this.env.root);
     this.player = new Player();
-    this.player.startSlot(START_SLOTS[PLAYER_SLOT], -1);
+    const lane = LANES[myLaneIndex(this.online?.connected && this.online.role === 'guest')];
+    this.player.startSlot(laneX(lane), lane);
     this.t = 0;
     this.zone = null;
     this.waitTold = 0;
@@ -271,20 +285,20 @@ export class Game {
     this.reset(1234);
     this.setPlayerView(this.selected);
     this.playerView!.play('idle');
-    this.hud.showMenu(this.chars, this.selected, (id) => {
-      this.selected = id;
-      this.setPlayerView(id);
-      // A little hop to say hello.
-      this.playerView!.play('victory');
-      this.menuCheer = 1.1;
-      this.online?.send({ t: 'char', id });
-    }, () => this.onStartPressed(), () => { this.joining = true; this.updateLobby(); }, this.map, (map) => {
-      this.map = map;
-      try { localStorage.setItem('map', map); } catch { /* private mode */ }
-      this.reset(1234);
-      this.setPlayerView(this.selected);
-      this.playerView!.play('idle');
+    this.hud.showMenu({
+      char: this.def(this.selected),
+      onStart: () => this.onStartPressed(),
+      onOnline: () => { this.joining = true; this.updateLobby(); },
+      onSpin: (dx, held) => {
+        this.spinHeld = held;
+        if (!held) return;
+        const turn = dx * 0.012;
+        this.spin += turn;
+        // Remember how fast it was turning, to coast on after letting go.
+        this.spinVel = this.spinVel * 0.5 + (turn / Math.max(1 / 120, this.lastDt)) * 0.5;
+      },
     });
+    this.spin = this.spinVel = 0;
     this.updateLobby();
   }
 
@@ -317,18 +331,45 @@ export class Game {
 
   private onNet(m: NetMsg) {
     switch (m.t) {
-      case 'char':
+      case 'char': {
         this.remoteChar = this.chars.some((c) => c.id === m.id) ? m.id : this.chars[0].id;
         if (this.state === 'menu') this.updateLobby();
+        // In the room: their runner changes on the line.
+        const r = this.rivals.find((e) => e.sim instanceof Remote);
+        if (this.state === 'pick' && r && r.def.id !== this.remoteChar) {
+          this.recast(r, this.def(this.remoteChar));
+          this.hud.setTaken(this.taken());
+          this.pickTags();
+        }
+        break;
+      }
+      case 'pick':
+        if (this.online?.role === 'guest') {
+          this.takeRules(m);
+          this.openPick(m.seed);
+        }
+        break;
+      case 'rules':
+        // The host changed the race in the room: rebuild the line to match.
+        if (this.online?.role === 'guest' && this.state === 'pick') {
+          this.takeRules(m);
+          this.openPick(this.fieldSeed);
+        }
+        break;
+      case 'ready':
+        this.readyFriend = true;
+        this.updateReady();
+        this.maybeGo();
         break;
       case 'start':
         if (this.online?.role === 'guest') {
-          if (isMapId(m.map)) this.map = m.map;
-          this.startRace(m.seed, m.at);
+          this.takeRules(m);
+          if (this.state === 'pick' && this.fieldSeed === m.seed) this.beginCountdown(m.at);
+          else this.startRace(m.seed, m.at);
         }
         break;
       case 'again':
-        if (this.online?.role === 'host' && this.state === 'results') this.startRace();
+        if (this.online?.role === 'host' && this.state === 'results') this.onStartPressed();
         break;
       case 's':
         this.remote?.receive(m.d, m.x, m.y, m.v, this.sinceSent(m.v, m.w));
@@ -352,12 +393,26 @@ export class Game {
       case 'it':
         if (this.remote) this.remote.item = m.k;
         break;
+      case 'ob': {
+        const o = this.track?.obstacles.find((ob) => ob.id === m.id);
+        if (o && !o.hit && (this.state === 'race' || this.state === 'done')) {
+          o.hit = true;
+          this.smashView(o, this.remote?.x, this.remote?.speed);
+        }
+        break;
+      }
     }
   }
 
+  /** "Start" on the home screen: into the runner select (online, the host takes the friend along). */
   private onStartPressed() {
-    if (!this.online) { this.joining = false; sound.click(); this.startRace(); }
-    else if (this.online.role === 'host' && this.online.connected) { sound.click(); this.startRace(); }
+    if (!this.online) { this.joining = false; sound.click(); this.openPick(); }
+    else if (this.online.role === 'host' && this.online.connected) {
+      sound.click();
+      const seed = (Math.random() * 2 ** 31) | 0;
+      this.online.send({ t: 'pick', seed, map: this.map, lanes: this.laneCount, items: this.itemsOn });
+      this.openPick(seed);
+    }
   }
 
   private updateLobby() {
@@ -446,44 +501,171 @@ export class Game {
     }
   }
 
-  /** @param netAt online: when the start sequence begins, on the host's clock (ms) */
-  private startRace(netSeed?: number, netAt?: number) {
+  // ── Runner select ───────────────────────────────────────────────────
+  /** Everyone onto the line, then the room: pick a runner and press ready. */
+  private openPick(seed = (Math.random() * 2 ** 31) | 0) {
+    this.fieldSeed = seed;
+    this.setupField(seed);
+    this.state = 'pick';
+    this.readyMe = this.readyFriend = false;
+    this.input.enabled = false;
+    sound.setMusic('menu');
+    for (const v of [this.playerView!, ...this.rivals.map((r) => r.view)]) v.play('idle');
+    const host = !this.online || this.online.role === 'host';
+    this.hud.showPick({
+      chars: this.chars, selected: this.selected, taken: this.taken(),
+      rules: { map: this.map, lanes: this.laneCount, items: this.itemsOn }, canEdit: host,
+      onRules: (r) => this.setRules(r),
+      onPick: (id) => this.pickRunner(id),
+      onReady: () => this.onReady(),
+      onBack: () => {
+        if (this.online) this.leaveOnline();
+        this.showMenu();
+      },
+    });
+    this.pickTags();
+    this.updateReady();
+  }
+
+  /** Race settings changed in the room (solo, or the host online): save, tell the friend, rebuild the line. */
+  private setRules(r: { map: MapId; lanes: number; items: ItemKind[] }) {
+    if (r.map === this.map && r.lanes === this.laneCount && r.items.join() === this.itemsOn.join()) return;
+    this.map = r.map;
+    this.laneCount = r.lanes;
+    this.itemsOn = r.items;
+    profile.lanes = r.lanes;
+    profile.items = r.items;
+    saveProfile();
+    try { localStorage.setItem('map', r.map); } catch { /* private mode */ }
+    if (this.online?.connected) this.online.send({ t: 'rules', map: r.map, lanes: r.lanes, items: r.items });
+    this.openPick(this.fieldSeed);
+  }
+
+  /** The host's settings, as sent with a room, a change or the start. */
+  private takeRules(m: { map?: string; lanes?: number; items?: ItemKind[] }) {
+    if (isMapId(m.map)) this.map = m.map;
+    if (m.lanes) this.laneCount = m.lanes;
+    if (m.items) this.itemsOn = ITEM_KINDS.filter((k) => m.items!.includes(k));
+  }
+
+  /** Characters on the line other than yours: who's running them. */
+  private taken() {
+    const out: Record<string, string> = {};
+    for (const r of this.rivals) out[r.def.id] = r.sim instanceof Remote ? 'เพื่อน' : 'บอท';
+    return out;
+  }
+
+  /** Name tags in lane order. */
+  private pickTags() {
+    const all = [{ x: this.player.x, name: this.def(this.selected).name, me: true, friend: false },
+      ...this.rivals.map((r) => ({ x: r.sim.x, name: r.def.name, me: false, friend: r.sim instanceof Remote }))];
+    this.hud.setPickTags(all.map((t) => ({ ...t, lane: LANE_COUNT - laneIndex(nearestLane(t.x)) })));
+  }
+
+  /** Swap runners: a bot already on that character takes the one you left. */
+  private pickRunner(id: string) {
+    const was = this.selected;
+    this.selected = id;
+    profile.char = id;
+    saveProfile();
+    this.setPlayerView(id);
+    this.playerView!.play('victory');
+    this.menuCheer = 1.1;
+    this.player.stats = this.def(id).stats ?? BASE_STATS;
+    const bot = this.rivals.find((r) => r.def.id === id && r.sim instanceof Rival);
+    if (bot) this.recast(bot, this.def(was));
+    this.online?.send({ t: 'char', id });
+    this.hud.setTaken(this.taken());
+    this.pickTags();
+  }
+
+  /** Put a different character on a runner already on the line. */
+  private recast(r: RivalEntry, def: CharacterDef) {
+    this.scene.remove(r.view.root);
+    r.view = new CharacterView(def, { castShadow: false });
+    r.view.play('idle');
+    r.def = def;
+    if (r.sim instanceof Rival) r.sim.stats = def.stats ?? BASE_STATS;
+    else r.sim.strength = (def.stats ?? BASE_STATS).strength;
+    this.scene.add(r.view.root);
+  }
+
+  private onReady() {
+    const o = this.online;
+    if (!o?.connected) { this.beginCountdown(); return; }
+    this.readyMe = true;
+    o.send({ t: 'ready' });
+    this.updateReady();
+    this.maybeGo();
+  }
+
+  /** Host: both ready, so the race starts for both on the shared clock. */
+  private maybeGo() {
+    const o = this.online;
+    if (!o?.connected || o.role !== 'host' || !this.readyMe || !this.readyFriend || this.state !== 'pick') return;
+    const at = o.now() + START_LEAD * 1000;
+    o.send({ t: 'start', seed: this.fieldSeed, map: this.map, lanes: this.laneCount, items: this.itemsOn, at });
+    this.beginCountdown(at);
+  }
+
+  private updateReady() {
+    if (this.state !== 'pick') return;
+    const o = this.online;
+    if (!o?.connected) this.hud.setReady('พร้อม!', 'แตะเพื่อเริ่มนับถอยหลัง', true);
+    else if (!this.readyMe) this.hud.setReady('พร้อม!', this.readyFriend ? 'เพื่อนพร้อมแล้ว · รอคุณอยู่' : 'กดพร้อมทั้งสองคนแล้วเริ่มเลย', true);
+    else this.hud.setReady('พร้อมแล้ว ✓', 'รอเพื่อนกดพร้อม…', false, true);
+  }
+
+  /** Track, scenery and every runner standing on their block (no countdown yet). */
+  private setupField(seed: number) {
+    const online = this.online?.connected ? this.online : null;
+    this.reset(seed);
+    this.setPlayerView(this.selected);
+    this.player.stats = this.def(this.selected).stats ?? BASE_STATS;
+    this.remote = null;
+    this.startPath = [];
+    this.tapItemAt = -1;
+    const mine = myLaneIndex(online?.role === 'guest');
+    if (online) {
+      // Host in the middle lane, the guest beside them.
+      const theirs = LANES[myLaneIndex(online.role === 'host')];
+      const def = this.def(this.remoteChar ?? this.chars[0].id);
+      this.remote = new Remote(laneX(theirs));
+      this.remote.strength = (def.stats ?? BASE_STATS).strength;
+      this.addRunner(this.remote, def);
+    } else {
+      // One bot in every other lane, each on a different character.
+      const rng = new Rng(seed ^ 0x5bd1e995);
+      const pool = rng.shuffle(this.chars.filter((c) => c.id !== this.selected));
+      const lanes = LANES.filter((_, i) => i !== mine);
+      lanes.slice(0, pool.length).forEach((lane, i) => {
+        this.addRunner(new Rival(seed + i * 101, SKILLS[i % SKILLS.length], laneX(lane), lane, pool[i].stats ?? BASE_STATS), pool[i]);
+      });
+    }
+  }
+
+  private addRunner(sim: Rival | Remote, def: CharacterDef) {
+    // Rivals use a cheap blob shadow: five shadow-casting characters cost ~75k tris.
+    const view = new CharacterView(def, { castShadow: false });
+    const bubble = new Bubble(), rocket = new RocketPack(), tag = new ItemTag();
+    this.scene.add(view.root, bubble.mesh, rocket.root, tag.sprite);
+    this.rivals.push({ sim, view, def, lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
+  }
+
+  /** Straight to the count (dev ?autostart, or a guest who missed the room). */
+  private startRace(seed?: number, netAt?: number) {
     const params = new URLSearchParams(location.search);
-    const seed = netSeed ?? (Number(params.get('seed')) || (Math.random() * 2 ** 31) | 0);
+    this.setupField(seed ?? (Number(params.get('seed')) || (Math.random() * 2 ** 31) | 0));
+    this.beginCountdown(netAt);
+  }
+
+  /** @param netAt online: when the start sequence begins, on the host's clock (ms) */
+  private beginCountdown(netAt?: number) {
+    const params = new URLSearchParams(location.search);
     const online = this.online?.connected ? this.online : null;
     // Online both sides run the start off the shared clock: a moment from now,
     // so the start message has time to reach the guest first.
     this.startAt = online ? netAt ?? online.now() + START_LEAD * 1000 : null;
-    if (online?.role === 'host') online.send({ t: 'start', seed, map: this.map, at: this.startAt! });
-    this.reset(seed);
-    this.setPlayerView(this.selected);
-    this.remote = null;
-    this.startPath = [];
-    this.tapItemAt = -1;
-    if (online) {
-      // Host in box 1 (merging left), guest in box 2 (merging to the middle).
-      const mine = online.role === 'host' ? [0, -1] : [1, 0];
-      const theirs = online.role === 'host' ? 1 : 0;
-      this.player.startSlot(START_SLOTS[mine[0]], mine[1]);
-      const def = this.def(this.remoteChar ?? this.chars[0].id);
-      this.remote = new Remote(START_SLOTS[theirs]);
-      const view = new CharacterView(def, { castShadow: false });
-      const bubble = new Bubble(), rocket = new RocketPack(), tag = new ItemTag();
-      this.scene.add(view.root, bubble.mesh, rocket.root, tag.sprite);
-      this.rivals.push({ sim: this.remote, view, def, lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
-    } else {
-      const rng = new Rng(seed ^ 0x5bd1e995);
-      const pool = rng.shuffle(this.chars.filter((c) => c.id !== this.selected));
-      for (let i = 0; i < Math.min(RIVAL_COUNT, pool.length); i++) {
-        const [slot, lane] = RIVAL_SLOTS[i];
-        const sim = new Rival(seed + i * 101, SKILLS[i], START_SLOTS[slot], lane);
-        // Rivals use a cheap blob shadow: four shadow-casting characters cost ~60k tris.
-        const view = new CharacterView(pool[i], { castShadow: false });
-        const bubble = new Bubble(), rocket = new RocketPack(), tag = new ItemTag();
-        this.scene.add(view.root, bubble.mesh, rocket.root, tag.sprite);
-        this.rivals.push({ sim, view, def: pool[i], lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
-      }
-    }
     sound.setMusic(null);
     this.focusHeard = 0;
     this.hud.startRace(this.racers());
@@ -501,7 +683,7 @@ export class Game {
     this.input.enabled = true;
     // Open on the start-line shot (no sweep through the runners).
     const side = this.player.x <= 0 ? -1 : 1;
-    this.camTarget.set(THREE.MathUtils.clamp(this.player.x + side * 0.8, -3.2, 3.2), 1.6, this.player.d + 4.5);
+    this.camTarget.set(THREE.MathUtils.clamp(this.player.x + side * 0.8, -TRACK_HALF + 0.6, TRACK_HALF - 0.6), 1.6, this.player.d + 4.5);
     // Dev: start further down the track (?at=1200), optionally without the start (?nocount).
     const at = import.meta.env.DEV ? Number(params.get('at')) : 0;
     if (at > 0) {
@@ -682,6 +864,7 @@ export class Game {
       if (!r.sim.finished && r.sim.d >= RACE_LENGTH) r.sim.finish(this.t);
       for (const item of r.sim.fired) if (item === 'ink') this.splatAhead(r.sim);
       r.sim.fired.length = 0;
+      this.rivalSmash(r.sim);
     }
     this.contacts();
     this.collectItems();
@@ -744,7 +927,9 @@ export class Game {
       if (place > 0) this.cheer[place] = 2.6;
       if (place === 0) this.shake = 0.08;
     };
-    this.hud.showResults(order.map((i) => racers[i]), `${MAPS[this.map].flag} ${MAPS[this.map].name}`, (btn) => this.again(btn), () => this.showMenu());
+    const place = order.findIndex((i) => racers[i].isPlayer) + 1;
+    const reward = recordRace(place, racers.length, this.player.finished ? this.player.finishTime : null, `${this.map}/${LANE_COUNT}`);
+    this.hud.showResults(order.map((i) => racers[i]), `${MAPS[this.map].flag} ${MAPS[this.map].name}`, reward, (btn) => this.again(btn), () => this.showMenu());
   }
 
   private cheer: number[] = [];
@@ -763,6 +948,11 @@ export class Game {
     return 1 + times.filter((t) => t < time).length;
   }
   private menuCheer = 0;
+  /** Home: how far your runner has been turned by dragging, and its coasting speed (rad/s). */
+  private spin = 0;
+  private spinVel = 0;
+  private spinHeld = false;
+  private lastDt = 1 / 60;
   /** Focus level last heard, so only a rise plays the pluck. */
   private focusHeard = 0;
 
@@ -808,6 +998,17 @@ export class Game {
     podium.update(dt);
   }
 
+  /** Room tags over the runners on the line, you first then the others. */
+  private placePickTags() {
+    const w = innerWidth, h = innerHeight;
+    const v = new THREE.Vector3();
+    const heads = [this.player, ...this.rivals.map((r) => r.sim)];
+    this.hud.placePickTags(heads.map((s) => {
+      this.path.toWorld(s.x, 2.05, s.d, v).project(this.camera);
+      return v.z < 1 ? { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h } : null;
+    }));
+  }
+
   /** Name tags over the heads on the podium. */
   private placeTags() {
     const podium = this.podium!;
@@ -830,7 +1031,8 @@ export class Game {
       btn.disabled = true;
       return;
     }
-    this.startRace();
+    // Back to the room with the same runner, for a new track.
+    this.onStartPressed();
   }
 
   private onLaunch() {
@@ -843,6 +1045,36 @@ export class Game {
     const out: Traffic[] = [{ x: this.player.x, d: this.player.d }];
     for (const r of this.rivals) if (r.sim !== self) out.push({ x: r.sim.x, d: r.sim.d });
     return out;
+  }
+
+  /**
+   * What a rival runs into is smashed and gone for everyone, as it is when the
+   * player hits it: a dash ploughs through whatever it touches, a fumble
+   * breaks the obstacle in its lane of that row.
+   */
+  private rivalSmash(s: Rival) {
+    const row = this.track.rows[s.crashRow];
+    if (row && s.d > row.d1 + 1) s.crashRow = -1;
+    // A dash or a boost ploughs through whatever it touches.
+    const plough = s.dashing || s.itemBoostT > 0;
+    if (!plough && s.crashRow < 0) return;
+    const hw = BODY.width / 2, hd = BODY.depth / 2;
+    for (const o of this.track.obstacles) {
+      if (o.d > s.d + 3) break;
+      if (o.hit || o.d + o.length < s.d - 3 || o.kind === 'gap' || o.kind === 'slow' || o.kind === 'bounce') continue;
+      // A fumble only breaks what sits in its own lane, not a hazard across the whole track.
+      const crash = o.row === s.crashRow && !spansTrack(o.kind);
+      if (!crash && !plough) continue;
+      rivalBoxes.length = 0;
+      hitBoxes(o, this.t, rivalBoxes);
+      const hit = rivalBoxes.some((b) => s.x + hw > b.x0 && s.x - hw < b.x1 && s.d + hd > b.d0 && s.d - hd < b.d1 &&
+        (crash || (s.y < b.y1 && s.y + PLAYER.height > b.y0)));
+      if (!hit) continue;
+      o.hit = true;
+      if (crash) s.crashRow = -1;
+      if (Math.abs(s.d - this.player.d) < 25) sound.smash();
+      if (o.d < this.player.d + VIEW_AHEAD) this.smashView(o, s.x, s.speed);
+    }
   }
 
   /** Runners are solid (a friend's Remote has no bump methods, so it is never moved). */
@@ -865,7 +1097,8 @@ export class Game {
         if (s.took.has(box.id) || !touches(box, s.x, s.y, s.d)) continue;
         // Further back = better odds of a boost; ink only with someone to hit.
         const ahead = all.filter((o) => o !== s && o.d > s.d).length;
-        if (!s.give(rollItem(Math.random(), ahead / Math.max(1, all.length - 1), ahead > 0))) continue;
+        const item = rollItem(Math.random(), ahead / Math.max(1, all.length - 1), ahead > 0, this.itemsOn);
+        if (!item || !s.give(item)) continue;
         s.took.add(box.id);
         this.debris.burst(laneX(box.lane), ITEM.boxY, box.d, BOX_COLORS, s === this.player ? 14 : 6, 0.6, s.speed * 0.6);
       }
@@ -896,10 +1129,11 @@ export class Game {
       else if (['jump', 'bounce', 'slide', 'stumble', 'fall', 'dash', 'stunned'].includes(e.type)) this.online.send({ t: 'm', m: e.type as NetMove });
       else if (e.type === 'shoved') this.online.send({ t: 'm', m: 'stunned' }); // the friend sees the stagger
       else if (e.type === 'item' && e.item === 'shield') this.online.send({ t: 'sh', on: true });
-      else if (e.type === 'shieldBlock') this.online.send({ t: 'sh', on: false });
+      else if (e.type === 'shieldEnd') this.online.send({ t: 'sh', on: false });
       else if (e.type === 'item' && e.item === 'rocket') this.online.send({ t: 'rk', on: true });
       else if (e.type === 'rocketEnd') this.online.send({ t: 'rk', on: false });
       if (e.type === 'pickup' || e.type === 'item') this.online.send({ t: 'it', k: this.player.item });
+      if (e.type === 'smash') this.online.send({ t: 'ob', id: e.obstacle.id });
     }
     switch (e.type) {
       case 'jump':
@@ -1005,11 +1239,11 @@ export class Game {
           v?.play('burst', 0.6);
           this.playerLock = 0.6;
           this.shake = Math.max(this.shake, 0.15);
-          this.hud.flash('บูสต์!', 'good');
+          this.hud.flash(`บูสต์! ชนทะลุ · FOCUS +${ITEM.boostFocus}`, 'good');
         } else if (e.item === 'shield') {
           sound.shield();
           this.debris.burst(p.x, p.y + 1, p.d, POP_COLORS, 10, 0.8, p.speed);
-          this.hud.flash('เปิดโล่!', 'good');
+          this.hud.flash(`เปิดโล่ ${ITEM.shieldTime} วิ!`, 'good');
         } else if (e.item === 'ink') {
           sound.ink();
           const hits = this.splatAhead(p);
@@ -1022,7 +1256,7 @@ export class Game {
         } else {
           sound.spring();
           this.debris.burst(p.x, 0.2, p.d, [0x9be564, 0xffffff, 0xffd166], 12, 0.6, p.speed * 0.5);
-          this.hud.flash(`${ITEM_NAME.spring}!`, 'good');
+          this.hud.flash(`ขา${ITEM_NAME.spring} ${ITEM.springTime} วิ! กระโดดสูง`, 'good');
         }
         break;
       }
@@ -1036,6 +1270,14 @@ export class Game {
         this.shake = Math.max(this.shake, 0.15);
         this.debris.burst(this.player.x, this.player.y + 1, this.player.d + 0.6, POP_COLORS, 16, 0.9, this.player.speed);
         this.hud.flash('โล่กันไว้!', 'good');
+        break;
+      case 'shieldEnd':
+        sound.shieldPop();
+        this.debris.burst(this.player.x, this.player.y + 1, this.player.d + 0.6, POP_COLORS, 14, 0.9, this.player.speed);
+        this.hud.flash('โล่หมดแล้ว');
+        break;
+      case 'springEnd':
+        this.hud.flash('ขาสปริงหมดแล้ว');
         break;
       case 'inked':
         sound.inked();
@@ -1077,6 +1319,8 @@ export class Game {
     while (this.spawnIndex < obs.length && obs[this.spawnIndex].d < d + VIEW_AHEAD) {
       const o = obs[this.spawnIndex++];
       const v = new ObstacleView(o);
+      // Smashed by someone further ahead: already gone.
+      if (o.hit && o.kind !== 'gap' && o.kind !== 'slow' && o.kind !== 'bounce') v.root.visible = false;
       this.views.set(o.id, v);
       this.scene.add(v.root);
     }
@@ -1104,7 +1348,8 @@ export class Game {
       if (!this.podium) v.root.position.set(p.x, p.y, -p.d);
       if (this.state === 'race') {
         this.playerLock -= dt;
-        if (this.playerLock <= 0 && p.launched && (p.grounded || p.flying) && !p.sliding && !p.stunned && v.state !== 'run') v.play('run');
+        const gait = p.flying ? 'fly' : 'run';
+        if ((this.playerLock <= 0 || p.flying) && p.launched && (p.grounded || p.flying) && !p.sliding && !p.stunned && v.state !== gait) v.play(gait);
       } else if (this.state === 'done' && !this.podium) {
         this.playerLock -= dt;
         if (p.speed < STOP_SPEED) { if (v.state !== this.endPose) v.play(this.endPose); }
@@ -1143,10 +1388,11 @@ export class Game {
       }
       r.lock -= dt;
       const started = s.launched;
-      if (r.lock <= 0 && started && (this.state === 'race' || this.state === 'done')) {
+      const onRocket = s instanceof Rival ? s.flyT > 0 : s.rocket;
+      if ((r.lock <= 0 || onRocket) && started && (this.state === 'race' || this.state === 'done')) {
         // Past the line they run it out, then the winner celebrates.
         const stopped = (s.finished || s.halted) && s.speed < STOP_SPEED;
-        r.view.play(!stopped ? 'run' : !s.finished ? 'defeat' : this.placeOf(s.finishTime) === 1 ? 'victory' : 'idle');
+        r.view.play(onRocket ? 'fly' : !stopped ? 'run' : !s.finished ? 'defeat' : this.placeOf(s.finishTime) === 1 ? 'victory' : 'idle');
       }
       if (!this.podium) r.view.root.position.set(s.x, s.y, -s.d);
       if ('jolt' in s && s.jolt) { r.view.kick(s.jolt); s.jolt = 0; }
@@ -1166,14 +1412,18 @@ export class Game {
       }
       // Ink dripping off a splattered rival.
       if (s instanceof Rival && s.inked && Math.random() < 0.3) this.debris.burst(s.x, s.y + 1.6, s.d, INK_COLORS, 1, 0.5, s.speed);
-      // Rivals between the camera and the player would hide what's coming.
-      const behind = p.d - s.d;
-      const racing = this.state === 'race' || this.state === 'done';
-      r.view.setOpacity(!racing || this.gunT < 1.5 ? 1 : behind > 1 && behind < 10 ? 0.15 : behind > -1.5 && behind < 10 ? 0.4 : 1, dt);
       r.view.update(dt, this.podium ? 0 : s.speed, this.podium ? 0 : s.laneVelocity);
     }
     if (this.podium) this.updateCeremony(dt);
-    if (this.menuCheer > 0 && (this.menuCheer -= dt) <= 0 && this.state === 'menu') this.playerView?.play('idle');
+    this.lastDt = dt;
+    if (this.playerView) {
+      if (this.state === 'menu' && !this.spinHeld) {
+        this.spinVel *= Math.exp(-dt * 3);
+        this.spin += this.spinVel * dt;
+      }
+      this.playerView.root.rotation.y = this.state === 'menu' ? this.spin : 0;
+    }
+    if (this.menuCheer > 0 && (this.menuCheer -= dt) <= 0 && (this.state === 'menu' || this.state === 'pick')) this.playerView?.play('idle');
 
     this.updateCamera(dt);
     {
@@ -1196,6 +1446,7 @@ export class Game {
     this.scene.traverse((o) => { o.frustumCulled = false; });
     this.renderer.render(this.scene, this.camera);
     if (this.podium) this.placeTags();
+    if (this.state === 'pick') this.placePickTags();
     if (this.state === 'race' || this.state === 'done') {
       this.hud.update(this.racers(), this.t, dt);
       this.hud.setDash(p.dash / DASH.full, p.dashing);
@@ -1203,7 +1454,7 @@ export class Game {
       // The held item rides over the runner's head, where it is tapped.
       const at = p.item && !this.podium ? this.headAt(p.x, p.y + 0.62, p.d).project(this.camera) : null;
       this.hud.placeItem(at && at.z < 1 ? { x: (at.x * 0.5 + 0.5) * innerWidth, y: (-at.y * 0.5 + 0.5) * innerHeight } : null);
-      this.hud.setFlight(p.flyT);
+      this.hud.setTimers([['🚀', p.flyT], ['🛡️', p.shieldT], ['🦘', p.springT]]);
     }
   }
 
@@ -1221,17 +1472,17 @@ export class Game {
 
   /** Fire and smoke out of a rocket pack. */
   private exhaust(x: number, y: number, d: number) {
-    this.debris.streak(x + (Math.random() - 0.5) * 0.3, y + 0.45, d - 0.35 - Math.random() * 0.6, Math.random() < 0.5 ? 0xffa21f : 0xffe066);
-    if (Math.random() < 0.3) this.debris.burst(x, y + 0.5, d - 0.4, [0xdddddd, 0xbbbbbb], 1, 0.3, 0);
+    this.debris.streak(x + (Math.random() - 0.5) * 0.3, y + 1.2, d - 0.55 - Math.random() * 0.6, Math.random() < 0.5 ? 0xffa21f : 0xffe066);
+    if (Math.random() < 0.3) this.debris.burst(x, y + 1.2, d - 0.8, [0xdddddd, 0xbbbbbb], 1, 0.3, 0);
   }
 
   /** Smashed: pop the model and throw chunks in its colours. */
-  private smashView(o: Obstacle) {
+  private smashView(o: Obstacle, byX = this.player.x, bySpeed = this.player.speed) {
     this.views.get(o.id)?.smash();
     const pal = BIOMES[o.biome];
     const colors = [pal.a, pal.c, pal.b, 0xffffff];
-    const x = o.kind === 'shifter' || o.kind === 'pendulum' || o.kind === 'sweeper' ? this.player.x : laneX(o.lane);
-    const fwd = this.player.speed * 0.5;
+    const x = spansTrack(o.kind) ? byX : laneX(o.lane);
+    const fwd = bySpeed * 0.5;
     this.debris.burst(x, 0.8, o.d + Math.min(o.length, 2) / 2, colors, 16, 1, fwd);
   }
 
@@ -1245,6 +1496,9 @@ export class Game {
         const next = this.chars[(i + (e.key === 'ArrowRight' ? 1 : this.chars.length - 1)) % this.chars.length];
         document.querySelector<HTMLButtonElement>(`.char[data-id="${next.id}"]`)?.click();
       }
+    } else if (this.state === 'pick' && e.key === 'Enter') {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('.ready-btn:not(:disabled)')?.click();
     } else if (this.state === 'results' && e.key === 'Enter') {
       e.preventDefault();
       document.querySelector<HTMLButtonElement>('.results .again')?.click();
@@ -1280,7 +1534,7 @@ export class Game {
     const t = this.camTarget;
     const look = this.camLook;
 
-    if (!this.podium && this.state !== 'menu' && cam.view?.enabled) {
+    if (!this.podium && this.state !== 'menu' && this.state !== 'pick' && cam.view?.enabled) {
       cam.clearViewOffset();
       this.viewOffset.set(0, 0);
     }
@@ -1294,7 +1548,22 @@ export class Game {
       const dist = 1.05 / (Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * fh); // ≈ 2.1 m of height in the gap
       t.lerp(new THREE.Vector3(p.x + dist * 0.25, 1.25, p.d + dist), k);
       look.set(p.x, 0.92, p.d);
-      this.viewOffset.lerp(new THREE.Vector2(0, (ins.bottom - ins.top) / 2), k);
+      this.viewOffset.lerp(new THREE.Vector2(ins.right / 2, (ins.bottom - ins.top) / 2), k);
+      cam.setViewOffset(w, h, this.viewOffset.x, this.viewOffset.y, w, h);
+    } else if (this.state === 'pick') {
+      // The room: the whole start line from the front, every runner in their
+      // lane, framed in the space the title and the panel leave free.
+      const w = innerWidth, h = innerHeight;
+      const ins = this.hud.pickInsets();
+      const fw = Math.max(0.35, (w - ins.right) / w);
+      const fh = Math.max(0.3, (h - ins.top - ins.bottom) / h);
+      cam.fov = portrait ? 50 : 40;
+      const tan = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+      // Fit the outer runners (not the kerbs) across the free width.
+      const dist = Math.max((laneX(LANES[LANE_COUNT - 1]) + 0.9) / (tan * cam.aspect * fw), 1.75 / (tan * fh));
+      t.lerp(new THREE.Vector3(0, 1.4 + dist * 0.1, p.d + dist), k);
+      look.set(0, 1.15, p.d);
+      this.viewOffset.lerp(new THREE.Vector2(ins.right / 2, (ins.bottom - ins.top) / 2), k);
       cam.setViewOffset(w, h, this.viewOffset.x, this.viewOffset.y, w, h);
     } else if (this.podium) {
       // Ceremony: start tight on the champion, pull back to frame the podium in
@@ -1323,7 +1592,7 @@ export class Game {
       const k2 = 1 - Math.exp(-dt * 2.5);
       // Keep the camera on the track, clear of walls, stands and the gantry posts.
       const side = p.x <= 0 ? -1 : 1;
-      const cx = THREE.MathUtils.clamp(p.x + side * 0.8, -3.2, 3.2);
+      const cx = THREE.MathUtils.clamp(p.x + side * 0.8, -TRACK_HALF + 0.6, TRACK_HALF - 0.6);
       t.lerp(new THREE.Vector3(cx, (portrait ? 1.25 : 1.0) - set * 0.12, p.d + (portrait ? 3.8 : 2.4) - set * 0.5), k2);
       look.set(p.x - side * (portrait ? 0.9 : 2.0), 0.4, p.d - 0.5);
       cam.fov += ((portrait ? 66 : 50) - cam.fov) * k2;

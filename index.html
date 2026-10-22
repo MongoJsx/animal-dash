@@ -6,15 +6,107 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#2a7fd4" />
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Kanit:ital,wght@0,400;0,600;0,700;0,800;0,900;1,800;1,900&display=swap" rel="stylesheet" />
     <title>วิ่งซิ่งข้ามโลก</title>
+    <!-- The loading screen is drawn before any script arrives; main.ts fills the bar and fades it out.
+         Same paper-cut look as the menu: a paper sky, sun and clouds over layered paper waves. -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #2a7fd4; }
+      .boot { position: fixed; inset: 0; z-index: 10; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        font-family: 'Kanit', system-ui, -apple-system, 'Noto Sans Thai', sans-serif; color: #1d2b4f; user-select: none; -webkit-user-select: none;
+        background: linear-gradient(#5aaaf0, #2f88dc 55%, #2a7fd4); transition: opacity .55s ease, transform .55s ease; }
+      .boot.out { opacity: 0; transform: scale(1.05); pointer-events: none; }
+      /* Paper grain over everything. */
+      .boot::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+        background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .1 0 0 0 0 .2 0 0 0 0 .4 0 0 0 .12 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+      .boot-sun { position: absolute; left: 50%; top: 20%; width: min(46vmin, 300px); aspect-ratio: 1; margin-left: max(-4vmin, -40px); border-radius: 50%;
+        background: radial-gradient(circle at 40% 35%, #ffd36a, #f6b73c 60%, #ec9d22); box-shadow: 0 6px 0 rgba(150, 90, 10, .25), 0 0 0 18px rgba(255, 211, 106, .18); animation: bootSun 6s ease-in-out infinite alternate; }
+      @keyframes bootSun { to { transform: translateY(-8px); } }
+      /* Paper clouds: puffs of one sheet, a darker sheet peeking under. */
+      .boot-cloud { position: absolute; width: 90px; height: 34px; border-radius: 34px; background: #fffaf1;
+        filter: drop-shadow(0 4px 0 #c9d9ec) drop-shadow(0 8px 10px rgba(18, 52, 110, .25)); animation: bootDrift var(--d) ease-in-out infinite alternate; }
+      .boot-cloud::before, .boot-cloud::after { content: ''; position: absolute; border-radius: 50%; background: inherit; }
+      .boot-cloud::before { width: 46px; height: 46px; left: 14px; top: -24px; }
+      .boot-cloud::after { width: 36px; height: 36px; left: 46px; top: -16px; }
+      @keyframes bootDrift { to { transform: translateX(var(--m)) scale(var(--s)); } }
+      .c1 { left: 6%; top: 12%; --d: 7s; --m: 22px; --s: 1.5; transform: scale(1.5); }
+      .c2 { right: 8%; top: 32%; --d: 9s; --m: -26px; --s: 1.2; transform: scale(1.2); }
+      .c3 { left: 18%; top: 44%; --d: 8s; --m: 18px; --s: .85; transform: scale(.85); }
+      /* Phones: two small clouds up in the corners, clear of the logo. */
+      @media (max-width: 560px) {
+        .c1 { left: 4%; top: 6%; --s: 1; transform: none; }
+        .c2 { right: 2%; top: 13%; --s: .8; transform: scale(.8); }
+        .c3 { display: none; }
+        .boot-sun { margin-left: -2vmin; }
+      }
+      /* Layered paper waves along the bottom, each sheet rocking on its own. */
+      .boot-sea { position: absolute; left: -10%; right: -10%; bottom: 0; height: 34vh; }
+      .boot-sea i { position: absolute; left: 0; right: 0; bottom: 0; height: var(--h); background: var(--c);
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 40'%3E%3Cpath d='M0 20 Q 25 0 50 20 T 100 20 T 150 20 T 200 20 V40 H0Z'/%3E%3C/svg%3E") 0 0 / 200px 40px repeat-x, linear-gradient(#000, #000) 0 40px / 100% 100% no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 40'%3E%3Cpath d='M0 20 Q 25 0 50 20 T 100 20 T 150 20 T 200 20 V40 H0Z'/%3E%3C/svg%3E") 0 0 / 200px 40px repeat-x, linear-gradient(#000, #000) 0 40px / 100% 100% no-repeat;
+        filter: drop-shadow(0 -3px 0 rgba(255, 255, 255, .55)); animation: bootWave var(--t) ease-in-out infinite alternate; }
+      .boot-sea i:nth-child(1) { --h: 100%; --c: #3f96e2; --t: 5s; }
+      .boot-sea i:nth-child(2) { --h: 74%; --c: #2a7fd4; --t: 4s; animation-delay: -1s; }
+      .boot-sea i:nth-child(3) { --h: 50%; --c: #1f66b8; --t: 4.6s; animation-delay: -2s; }
+      .boot-sea i:nth-child(4) { --h: 26%; --c: #1b4f9e; --t: 3.6s; }
+      @keyframes bootWave { from { transform: translateX(-30px); } to { transform: translateX(30px); } }
+      /* A few sakura petals. */
+      .boot-petals i { position: absolute; top: -20px; left: var(--x); width: 12px; height: 9px; border-radius: 12px 2px 12px 2px; background: linear-gradient(135deg, #ffd3e0, #f07aa0); animation: bootPetal var(--d) linear var(--w) infinite; }
+      @keyframes bootPetal { 0% { transform: translate(0, -20px) rotate(0); } 50% { transform: translate(24px, 50vh) rotate(200deg); } 100% { transform: translate(-10px, 105vh) rotate(420deg); } }
+      .boot-logo { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; margin-top: -10vh; animation: bootIn .8s cubic-bezier(.2, 1.4, .4, 1) both; }
+      .boot-th { font-size: clamp(64px, 18vw, 132px); font-weight: 900; font-style: italic; line-height: 1; letter-spacing: -1px; padding: 0 .12em .1em; color: #fff;
+        text-shadow: 0 4px 0 #e04a3a, 0 8px 0 #233f86, 0 16px 22px rgba(18, 34, 74, .4); }
+      .boot-en { margin-top: 6px; padding: 3px 16px 4px; border-radius: 99px; background: #fbf4e6; color: #233f86; font-size: clamp(13px, 3.4vw, 17px); font-weight: 800; letter-spacing: 6px; text-indent: 6px;
+        box-shadow: inset 0 1px 0 #fff, 0 2px 0 #dcc9a8, 0 6px 14px rgba(18, 34, 74, .22); }
+      @keyframes bootIn { from { opacity: 0; transform: scale(.5) rotate(-5deg); } }
+      /* Progress: a cream paper strip filling with sakura. */
+      .boot-card { position: relative; z-index: 1; width: clamp(270px, 80vw, 440px); margin-top: 7vh; padding: 14px 16px 12px; border-radius: 22px; background: #fbf4e6;
+        box-shadow: inset 0 1px 0 #fff, 0 3px 0 #dcc9a8, 0 12px 28px rgba(18, 34, 74, .26); animation: bootUp .6s .25s cubic-bezier(.2, 1.2, .4, 1) both; }
+      @keyframes bootUp { from { opacity: 0; transform: translateY(24px); } }
+      .boot-road { position: relative; margin-top: 16px; }
+      .boot-lane { position: relative; height: 16px; border-radius: 99px; background: #f1e6d1; box-shadow: inset 0 2px 3px rgba(18, 34, 74, .12); overflow: hidden; }
+      .boot-fill { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--p, 0) * 100%); min-width: 16px; border-radius: 99px; transition: width .35s ease;
+        background: linear-gradient(#ff9dbb, #f07aa0); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .1), inset 0 2px 0 rgba(255, 255, 255, .5); }
+      .boot-runner { position: absolute; z-index: 1; bottom: 8px; left: calc(var(--p, 0) * 100%); margin-left: -20px; font-size: 32px; line-height: 1; transform: scaleX(-1); transition: left .35s ease; }
+      .boot-runner i { display: block; font-style: normal; animation: bootHop .32s ease-in-out infinite alternate; }
+      @keyframes bootHop { to { transform: translateY(-5px) rotate(-6deg); } }
+      .boot-flag { position: absolute; right: -6px; bottom: 6px; font-size: 26px; line-height: 1; }
+      .boot-meta { display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px; font-weight: 700; color: #66708a; }
+      .boot-meta b { color: #e04a3a; font-weight: 900; font-variant-numeric: tabular-nums; }
+      .boot-tip { min-height: 2.8em; margin-top: 10px; padding-top: 10px; border-top: 2px dashed #e6d8bd; font-size: 14px; line-height: 1.4; color: #1d2b4f; }
+      .boot-tip span { display: inline-block; animation: bootTip .4s ease both; }
+      .boot-tip span::before { content: 'เคล็ดลับ'; display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 6px; background: #e04a3a; color: #fff; font-size: 12px; font-weight: 800; vertical-align: 1px; }
+      @keyframes bootTip { from { opacity: 0; transform: translateY(6px); } }
+      @media (max-height: 560px) { .boot-logo { margin-top: 0; } .boot-card { margin-top: 3vh; } .boot-sun { top: 6%; } }
+      @media (prefers-reduced-motion: reduce) { .boot *, .boot *::before, .boot *::after { animation: none !important; } }
+    </style>
   </head>
   <body>
+    <div class="boot" id="boot">
+      <div class="boot-sun"></div>
+      <div class="boot-cloud c1"></div>
+      <div class="boot-cloud c2"></div>
+      <div class="boot-cloud c3"></div>
+      <div class="boot-sea"><i></i><i></i><i></i><i></i></div>
+      <div class="boot-petals">
+        <i style="--x:12%;--d:9s;--w:-2s"></i><i style="--x:34%;--d:12s;--w:-6s"></i><i style="--x:58%;--d:10s;--w:-1s"></i><i style="--x:80%;--d:13s;--w:-8s"></i>
+      </div>
+      <div class="boot-logo"><span class="boot-th">วิ่งสุดใจ</span><span class="boot-en">วิ่งซิ่งข้ามโลก</span></div>
+      <div class="boot-card">
+        <div class="boot-road">
+          <span class="boot-flag">🏁</span>
+          <span class="boot-runner"><i>🏃</i></span>
+          <div class="boot-lane"><div class="boot-fill"></div></div>
+        </div>
+        <div class="boot-meta"><span class="boot-status">กำลังวอร์มอัป…</span><b class="boot-pct">0%</b></div>
+        <div class="boot-tip"><span>หลบให้ผ่านทุกแถว FOCUS จะขึ้น ยิ่งวิ่งยิ่งเร็ว</span></div>
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

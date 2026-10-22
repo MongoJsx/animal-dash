@@ -1,6 +1,6 @@
 // Obstacle mechanics: where each kind is at race time t and what it collides with.
 // Pure functions of (obstacle, t) so every client computes the same thing.
-import { LANE_WIDTH, laneX } from '../config.ts';
+import { LANE_MAX, LANE_WIDTH, laneX } from '../config.ts';
 import type { BiomeId } from './biomes.ts';
 import { visualExtent } from './propFit.ts';
 
@@ -67,8 +67,9 @@ export function trigger(o: Obstacle, t: number, playerD: number, speed: number) 
 export const movingD = (o: Obstacle, t: number) =>
   o.triggerT < 0 ? o.d : o.d - o.speed * (t - o.triggerT);
 
+/** Walks from the outer lane on one side to the outer lane on the other. */
 export const shifterX = (o: Obstacle, t: number) =>
-  Math.sin(Math.PI * 2 * (t / o.period + o.phase)) * LANE_WIDTH;
+  Math.sin(Math.PI * 2 * (t / o.period + o.phase)) * LANE_MAX * LANE_WIDTH;
 
 export const pendulumAngle = (o: Obstacle, t: number) =>
   Math.sin(Math.PI * 2 * (t / o.period + o.phase)) * PENDULUM.amplitude;

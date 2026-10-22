@@ -100,6 +100,10 @@ const _end = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _want = new THREE.Vector3();
 const _qy = new THREE.Quaternion();
+const _sh = new THREE.Vector3();
+const _hand = new THREE.Vector3();
+/** Wrist height when the fingertips are on the track, in leg lengths. */
+const HAND_LIFT = 0.07;
 
 /** Per-character tweaks (characters.json `anim`). */
 export interface RigStyle {
@@ -110,7 +114,7 @@ export interface RigStyle {
 }
 
 interface Leg { up: Joint; low: Joint; foot: Joint; toe: Joint; thigh: number; shin: number; side: number }
-interface Arm { clav: Joint; up: Joint; fore: Joint; hand: Joint; side: number }
+interface Arm { clav: Joint; up: Joint; fore: Joint; hand: Joint; side: number; upper: number; lower: number }
 
 export class ProcRig {
   private j = {} as Record<Name, Joint>;
@@ -123,6 +127,8 @@ export class ProcRig {
   private F = new THREE.Vector3();
   private legLen = 1;
   private hipsH = 1;
+  /** Hips to the shoulder line at rest. */
+  private torsoLen = 1;
   private legs: Leg[] = [];
   private arms: Arm[] = [];
 
@@ -188,10 +194,12 @@ export class ProcRig {
     const shin = (s: 'Left' | 'Right') => j[`${s}Leg`].restWP.distanceTo(j[`${s}Foot`].restWP);
     for (const [s, side] of [['Left', -1], ['Right', 1]] as const) {
       this.legs.push({ up: j[`${s}UpLeg`], low: j[`${s}Leg`], foot: j[`${s}Foot`], toe: j[`${s}ToeBase`], thigh: thigh(s), shin: shin(s), side });
-      this.arms.push({ clav: j[`${s}Shoulder`], up: j[`${s}Arm`], fore: j[`${s}ForeArm`], hand: j[`${s}Hand`], side });
+      this.arms.push({ clav: j[`${s}Shoulder`], up: j[`${s}Arm`], fore: j[`${s}ForeArm`], hand: j[`${s}Hand`], side,
+        upper: j[`${s}Arm`].restWP.distanceTo(j[`${s}ForeArm`].restWP), lower: j[`${s}ForeArm`].restWP.distanceTo(j[`${s}Hand`].restWP) });
     }
     this.legLen = (thigh('Left') + shin('Left') + thigh('Right') + shin('Right')) / 2;
     this.hipsH = j.Hips.restWP.y;
+    this.torsoLen = j.LeftArm.restWP.clone().add(j.RightArm.restWP).multiplyScalar(0.5).distanceTo(j.Hips.restWP);
   }
 
   play(state: AnimState, duration = 0) {
@@ -202,7 +210,7 @@ export class ProcRig {
     for (let i = 0; i < NAMES.length; i++) this.from.q[i].copy(this.out.q[i]);
     this.from.hips.copy(this.out.hips);
     this.fade = state === 'jump' ? 0.08 : state === 'run' && prev === 'jump' ? 0.06 : state === 'slide' ? 0.1
-      : state === 'marks' ? 0.7 : state === 'set' ? 0.45 : state === 'burst' ? 0.07 : state === 'run' && prev === 'burst' ? 0.35 : 0.18;
+      : state === 'fly' ? 0.35 : state === 'marks' ? 0.7 : state === 'set' ? 0.45 : state === 'burst' ? 0.07 : state === 'run' && prev === 'burst' ? 0.35 : 0.18;
     if (state === 'burst') this.phase = 0.62; // first stride: rear leg drives through
     this.fadeT = this.posed ? 0 : this.fade;
     if (state === 'run' && prev === 'jump') {
@@ -224,7 +232,7 @@ export class ProcRig {
 
     // Cadence rises a little with speed; stride length does the rest.
     const cadence = THREE.MathUtils.clamp(1.25 + this.speedS * 0.035, 1.2, 2.1);
-    const still = this.state === 'idle' || this.state === 'victory' || this.state === 'defeat' || this.state === 'marks' || this.state === 'set';
+    const still = this.state === 'fly' || this.state === 'idle' || this.state === 'victory' || this.state === 'defeat' || this.state === 'marks' || this.state === 'set';
     // Drive phase: quick, punchy steps while the speed is still low.
     const drive = this.state === 'burst' ? 1.25 : 1;
     if (!still) this.phase = wrap(this.phase + dt * Math.max(cadence, this.state === 'burst' ? 1.9 : 0) * drive * (this.state === 'stumble' ? 1.3 : 1));
@@ -336,6 +344,53 @@ export class ProcRig {
     this.fk(arm.hand, null);
   }
 
+  /** Two-bone arm IK: wrist to `target`, elbow pointing back and a little out. */
+  private armTo(arm: Arm, target: THREE.Vector3, clavFwd: number, clavUp: number) {
+    this.fk(arm.clav, this.rot(0, arm.side * clavFwd, -arm.side * clavUp, _q));
+    this.fk(arm.up, null);
+    const sh = arm.up.p;
+    const a = arm.upper, b = arm.lower;
+    const toT = _v3.subVectors(target, sh);
+    let d = toT.length();
+    d = THREE.MathUtils.clamp(d, Math.abs(a - b) + 1e-3, (a + b) * 0.999);
+    toT.normalize();
+    const cosA = (a * a + d * d - b * b) / (2 * a * d);
+    const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+    const pole = _v2.copy(this.F).negate().addScaledVector(this.R, arm.side * 0.8);
+    pole.addScaledVector(toT, -pole.dot(toT)).normalize();
+    const elbow = _knee.copy(sh).addScaledVector(toT, a * cosA).addScaledVector(pole, a * sinA);
+    const end = _end.copy(sh).addScaledVector(toT, d);
+    this.aimTo(arm.up, arm.fore, _dir.subVectors(elbow, sh));
+    this.fk(arm.fore, null);
+    this.aimTo(arm.fore, arm.hand, end.sub(elbow));
+    this.fk(arm.hand, null);
+  }
+
+  /**
+   * Feet in the starting blocks (the same spot for "marks" and "set"): front
+   * foot a stride behind the hands, rear foot further back on its toes. In
+   * "marks" the rear knee rests on the track, in "set" it lifts off.
+   */
+  private blocks(ankles: THREE.Vector3[], fp: number[], toes: number[], set: number) {
+    ankles[0] = this.ground(this.legs[0], 0.12, mix(0.05, 0.07, set), 0.9, ankles[0]);
+    ankles[1] = this.ground(this.legs[1], -0.42, mix(0.1, 0.14, set), 0.9, ankles[1]);
+    fp[0] = mix(30, 38, set) * DEG;
+    fp[1] = mix(58, 62, set) * DEG;
+    toes[0] = -20 * DEG;
+    toes[1] = -45 * DEG;
+  }
+
+  /** Shoulder joints' midpoint for the current spine pose (clavicles at rest). */
+  private shoulders(cu: number, out: THREE.Vector3) {
+    out.set(0, 0, 0);
+    for (const arm of this.arms) {
+      this.fk(arm.clav, this.rot(0, 0, -arm.side * cu, _q));
+      this.fk(arm.up, null);
+      out.addScaledVector(arm.up.p, 0.5);
+    }
+    return out;
+  }
+
   private ground(leg: Leg, f: number, h: number, width: number, out: THREE.Vector3) {
     // Ankle target relative to where the hip joint stands at rest.
     const L = this.legLen;
@@ -362,6 +417,10 @@ export class ProcRig {
     for (const a of armP) Object.assign(a, ARM_REST);
     let sp = 0, sy = 0, sr = 0, hp = 0, hy = 0, stab = 0.7;
     let kneeOut = 0.15;
+    /** Hands on the track (start poses): wrists this far ahead of the shoulders, arms at `reach` of their length. */
+    let plant: { hips: number; ahead: number; reach: number } | null = null;
+    /** Flying: legs stretched straight back along the body, kicking by this much (-1..1). */
+    let flyLegs: number | null = null;
 
     const runPose = (strength = 1) => {
       const u = this.phase;
@@ -427,51 +486,48 @@ export class ProcRig {
       }
 
       case 'marks': {
-        // "On your marks": rear knee down, front foot on the block,
-        // straight arms with fingers on the line, eyes down.
+        // "On your marks": rear knee down beside the front foot, hands on
+        // the line shoulder-width apart, arms straight under the shoulders,
+        // back long and the head hanging in line with it, eyes on the track.
         const br = Math.sin(t * 2.4 + this.seed) * 0.5 + 0.5;
-        hipsPos.y = this.hipsH * 0.5 + br * 0.006 * L;
-        hipsPos.addScaledVector(this.F, -0.02 * L);
-        this.rot(38 * DEG, 0, 0, hipsQ);
-        ankles[0] = this.ground(this.legs[0], 0.22, 0.03, 1, ankles[0]);
-        ankles[1] = this.ground(this.legs[1], -0.4, 0.08, 1, ankles[1]);
-        fp[0] = 20 * DEG;
-        fp[1] = 55 * DEG;
-        toes[1] = -35 * DEG;
-        kneeOut = 0.05;
-        sp = 36 * DEG;
-        hp = -10 * DEG;
-        stab = 0.15;
-        for (let i = 0; i < 2; i++) {
-          armP[i].swing = (78 + br) * DEG;
-          armP[i].spread = 10 * DEG;
-          armP[i].elbow = 4 * DEG;
-          armP[i].cu = 4 * DEG;
-        }
+        hipsPos.addScaledVector(this.F, -0.1 * L);
+        this.blocks(ankles, fp, toes, 0);
+        kneeOut = 0.04;
+        hp = -6 * DEG;
+        stab = 0.25;
+        plant = { hips: 0.5 + br * 0.006, ahead: 0.03, reach: 0.97 };
         break;
       }
 
       case 'set': {
-        // "Set": hips rise above the shoulders, weight forward over the hands.
-        const quiver = Math.sin(t * 17 + this.seed) * 0.003 * L;
-        hipsPos.y = this.hipsH * 0.8 + quiver;
-        hipsPos.addScaledVector(this.F, 0.07 * L);
-        this.rot(58 * DEG, 0, 0, hipsQ);
-        ankles[0] = this.ground(this.legs[0], 0.22, 0.03, 1, ankles[0]);
-        ankles[1] = this.ground(this.legs[1], -0.4, 0.1, 1, ankles[1]);
-        fp[0] = 28 * DEG;
-        fp[1] = 50 * DEG;
-        toes[1] = -40 * DEG;
-        kneeOut = 0.05;
-        sp = 26 * DEG;
-        hp = -14 * DEG;
-        stab = 0.1;
-        for (let i = 0; i < 2; i++) {
-          armP[i].swing = 86 * DEG;
-          armP[i].spread = 10 * DEG;
-          armP[i].elbow = 2 * DEG;
-          armP[i].cu = 6 * DEG;
-        }
+        // "Set": hips up a touch above the shoulders, front knee near a right
+        // angle, shoulders rolled forward past the hands, arms locked, head in
+        // line with the back; a held-breath quiver before the gun.
+        const quiver = Math.sin(t * 17 + this.seed) * 0.002;
+        hipsPos.addScaledVector(this.F, 0.06 * L);
+        this.blocks(ankles, fp, toes, 1);
+        kneeOut = 0.04;
+        hp = -4 * DEG;
+        stab = 0.3;
+        plant = { hips: 0.74 + quiver, ahead: -0.08, reach: 0.985 };
+        break;
+      }
+
+      case 'fly': {
+        // Rocket pack: lying flat like a flying hero, back arched so the head
+        // looks down the track, one fist punching ahead, the other arm along
+        // the side, legs straight out behind with a lazy flutter.
+        const bob = Math.sin(t * 3 + this.seed);
+        hipsPos.y = this.hipsH + bob * 0.015 * L;
+        this.rot((84 + bob * 2) * DEG, 0, 0, hipsQ);
+        sp = -14 * DEG;
+        hp = -48 * DEG;
+        stab = 0;
+        fp[0] = fp[1] = 55 * DEG;
+        kneeOut = 0.1;
+        flyLegs = Math.sin(t * 7 + this.seed);
+        armP[1].swing = 172 * DEG; armP[1].spread = 8 * DEG; armP[1].elbow = 4 * DEG; armP[1].cu = 14 * DEG;
+        armP[0].swing = -14 * DEG; armP[0].spread = 16 * DEG; armP[0].elbow = 12 * DEG;
         break;
       }
 
@@ -607,13 +663,62 @@ export class ProcRig {
     }
 
     // ── Solve ──
+    const handY = HAND_LIFT * L;
+    const reach = (this.arms[0].upper + this.arms[0].lower) * (plant?.reach ?? 1);
+    if (plant) {
+      // Hips at the height the pose wants; tip the back forward until the
+      // shoulders sit an arm's length above the track.
+      hipsPos.y = this.hipsH * plant.hips;
+      const want = handY + reach;
+      let lean = Math.acos(THREE.MathUtils.clamp((want - hipsPos.y) / this.torsoLen, -0.6, 0.7));
+      // The spine curls rather than tipping like a stick: refine by Newton steps.
+      for (let it = 0; it < 4; it++) {
+        this.rot(lean * 0.6, 0, 0, hipsQ);
+        this.hipsPose(hipsPos, hipsQ);
+        this.spinePose(lean * 0.4, sy, sr, hp, hy, stab);
+        const err = this.shoulders(0, _sh).y - want;
+        lean = THREE.MathUtils.clamp(lean + err / (this.torsoLen * Math.max(0.3, Math.sin(lean))), 45 * DEG, 135 * DEG);
+      }
+      this.rot(lean * 0.6, 0, 0, hipsQ);
+      sp = lean * 0.4;
+    }
     this.hipsPose(hipsPos, hipsQ);
     this.spinePose(sp, sy, sr, hp, hy, stab);
+    if (plant) {
+      // The spine doesn't bend like one stick: settle the rest by raising or
+      // lowering the whole body (the legs follow by IK).
+      const sh = this.shoulders(0, _sh);
+      const lo = this.hipsH * 0.32, hi = this.hipsH * 0.96;
+      hipsPos.y = THREE.MathUtils.clamp(hipsPos.y + handY + reach - sh.y, lo, hi);
+      this.hipsPose(hipsPos, hipsQ);
+      this.spinePose(sp, sy, sr, hp, hy, stab);
+    }
+    if (flyLegs !== null) {
+      // Ankles a nearly straight leg's length out along the body's own "down".
+      _v3.copy(this.U).negate().applyQuaternion(hipsQ);
+      for (let i = 0; i < 2; i++) {
+        const leg = this.legs[i];
+        this.fk(leg.up, null);
+        const kick = flyLegs * (i ? -1 : 1) * 0.06 * L;
+        ankles[i].copy(leg.up.p).addScaledVector(_v3, (leg.thigh + leg.shin) * 0.95)
+          .addScaledVector(this.R, leg.side * 0.03 * L).addScaledVector(this.U, kick);
+      }
+    }
     for (let i = 0; i < 2; i++) this.legPose(this.legs[i], ankles[i], fp[i], toes[i], kneeOut);
     const swingK = this.style.armSwing ?? 1;
     const spreadAdd = (this.style.armSpread ?? 0) * DEG;
     for (let i = 0; i < 2; i++) {
       const a = armP[i];
+      if (plant) {
+        // Wrists on the line, a little wider than the shoulders.
+        this.fk(this.arms[i].clav, null);
+        this.fk(this.arms[i].up, null);
+        const sh = this.arms[i].up.p;
+        _hand.copy(sh).addScaledVector(this.F, plant.ahead * L).addScaledVector(this.R, this.arms[i].side * 0.05 * L);
+        _hand.y = handY;
+        this.armTo(this.arms[i], _hand, 0, 0);
+        continue;
+      }
       this.armPose(this.arms[i], a.swing * swingK, a.spread + spreadAdd, a.elbow, a.cf, a.cu, a.tin * swingK);
     }
 

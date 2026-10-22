@@ -1,6 +1,6 @@
 // Dev autopilot (?bot): reads the obstacles ahead and swipes like a player.
 // Used for automated play-testing and screenshots, not shipped gameplay.
-import { laneX } from '../config.ts';
+import { LANE_MAX, LANE_MIN, nearestLane } from '../config.ts';
 import type { Action } from '../core/input.ts';
 import { answerFor, movingD, spansTrack, type Obstacle } from '../world/obstacles.ts';
 import type { Track } from '../world/track.ts';
@@ -16,9 +16,9 @@ export function botActions(p: Player, track: Track, t: number): Action[] {
   const need = (lane: number) => ahead.filter((o) => inLane(o, lane)).map((o) => ({ o, a: answerFor(o) }));
   const blocked = (lane: number) => need(lane).some(({ o, a }) => a === 'dodge' && !spansTrack(o.kind));
 
-  const lane = Math.round(p.x / laneX(1));
+  const lane = nearestLane(p.x);
   if (blocked(lane)) {
-    const free = [lane - 1, lane + 1].filter((l) => l >= -1 && l <= 1 && !blocked(l));
+    const free = [lane - 1, lane + 1].filter((l) => l >= LANE_MIN && l <= LANE_MAX && !blocked(l));
     if (free.length) return [free[0] < lane ? 'left' : 'right'];
   }
   for (const { o, a } of need(lane)) {

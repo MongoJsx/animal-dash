@@ -2,7 +2,7 @@
 // 25 m chunks around the player (one lit + one glowing mesh per chunk), plus
 // the sky, distant skyline, ambient particles and per-zone lighting "look".
 import * as THREE from 'three';
-import { BIOME_LENGTH, LANE_WIDTH, RACE_LENGTH, VIEW_AHEAD, VIEW_BEHIND } from '../config.ts';
+import { BIOME_LENGTH, RACE_LENGTH, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, laneDividers } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 import { BIOMES, biomeAt, type BiomeId, type CountryId, type Palette } from '../world/biomes.ts';
 import type { TrackPath } from '../world/path.ts';
@@ -10,7 +10,7 @@ import type { Track } from '../world/track.ts';
 import { Atmosphere } from './atmosphere.ts';
 import { finishArea, startArea, zoneGate } from './landmarks.ts';
 import { DecorInstancer, decorList, type Placement, type Template } from './props.ts';
-import { CHUNK, TRACK_HALF, buildCountryChunk, countryLandmarks } from './scenery.ts';
+import { CHUNK, SCENE_HALF, buildCountryChunk, countryLandmarks } from './scenery.ts';
 import { Shapes, glowMaterial } from './shapes.ts';
 import { Sky, blendLook, cloneLook, lookOf, type Look } from './sky.ts';
 
@@ -18,17 +18,17 @@ const SMALL_DECOR_RANGE = 90;
 
 function ground(s: Shapes, p: Palette, b: BiomeId, z0: number) {
   const zc = z0 - CHUNK / 2;
-  s.long(p.ground, 0, -0.1, zc, TRACK_HALF * 2, 0.2, CHUNK);
-  for (const lx of [-LANE_WIDTH / 2, LANE_WIDTH / 2]) s.long(p.groundAlt, lx, 0.005, zc, 0.12, 0.02, CHUNK);
+  s.long(p.ground, 0, -0.1, zc, SCENE_HALF * 2, 0.2, CHUNK);
+  s.exact(() => { for (const lx of laneDividers()) s.long(p.groundAlt, lx, 0.005, zc, 0.12, 0.02, CHUNK); });
   // Paving stripes give a sense of speed.
-  for (let i = 0; i < CHUNK; i += 5) s.box(p.groundAlt, 0, 0.004, z0 - i - 1.25, TRACK_HALF * 2 - 0.4, 0.01, 0.35);
+  for (let i = 0; i < CHUNK; i += 5) s.box(p.groundAlt, 0, 0.004, z0 - i - 1.25, SCENE_HALF * 2 - 0.4, 0.01, 0.35);
   const curb = b === 'harbor' ? p.a : b === 'candy' ? 0xffffff : p.d;
-  s.long(curb, -TRACK_HALF - 0.2, 0.1, zc, 0.4, 0.4, CHUNK).long(curb, TRACK_HALF + 0.2, 0.1, zc, 0.4, 0.4, CHUNK);
+  s.long(curb, -SCENE_HALF - 0.2, 0.1, zc, 0.4, 0.4, CHUNK).long(curb, SCENE_HALF + 0.2, 0.1, zc, 0.4, 0.4, CHUNK);
   const sideY = b === 'harbor' ? -0.6 : -0.12;
-  s.long(p.side, -TRACK_HALF - 30.4, sideY, zc, 60, 0.2, CHUNK).long(p.side, TRACK_HALF + 30.4, sideY, zc, 60, 0.2, CHUNK);
+  s.long(p.side, -SCENE_HALF - 30.4, sideY, zc, 60, 0.2, CHUNK).long(p.side, SCENE_HALF + 30.4, sideY, zc, 60, 0.2, CHUNK);
   if (b === 'harbor') {
     // Track is a pier: posts under it, water around.
-    for (const x of [-TRACK_HALF, TRACK_HALF]) for (let i = 2; i < CHUNK; i += 6) s.cyl(p.a, x, -1.2, z0 - i, 0.22, 1.3, 6);
+    for (const x of [-SCENE_HALF, SCENE_HALF]) for (let i = 2; i < CHUNK; i += 6) s.cyl(p.a, x, -1.2, z0 - i, 0.22, 1.3, 6);
   }
 }
 
@@ -176,6 +176,7 @@ export class Environment {
   private addLandmarks() {
     const country = this.country;
     const lit = new Shapes(), glow = new Shapes();
+    lit.widen = glow.widen = true;
     const b = { lit, glow };
     const extras = startArea(b, country, this.seed);
     for (let d = BIOME_LENGTH; d < RACE_LENGTH; d += BIOME_LENGTH) extras.push(...zoneGate(b, country, BIOMES[biomeAt(this.biomes, d + 1)], d));
@@ -191,6 +192,9 @@ export class Environment {
     const rng = new Rng(this.seed * 7919 + i);
     const s = new Shapes();
     const glow = new Shapes();
+    s.widen = glow.widen = true;
+    // Props are placed, not drawn: move them out by the extra track width by hand.
+    const by = TRACK_HALF - SCENE_HALF;
     const placements: Placement[] = [];
     const smallPlacements: Placement[] = [];
     if (buildCountryChunk({ lit: s, glow, rng, biome: b, p, d0, clear: this.clear })) {
@@ -201,12 +205,12 @@ export class Environment {
     ground(s, p, b, -d0);
     for (const side of [-1, 1]) {
       for (let z = rng.range(0, 4); z < CHUNK; z += rng.range(5, 9)) {
-        const near = side * rng.range(TRACK_HALF + 1.8, TRACK_HALF + 6);
-        if (large.length) this.place(placements, rng.pick(large), near, -d0 - z, rng.range(3.5, 6.5), rng);
+        const near = side * rng.range(SCENE_HALF + 1.8, SCENE_HALF + 6);
+        if (large.length) this.place(placements, rng.pick(large), near + side * by, -d0 - z, rng.range(3.5, 6.5), rng);
         else decor(s, p, b, near, -d0 - z, rng);
         if (rng.chance(large.length ? 0.3 : 0.5)) {
-          const back = side * rng.range(TRACK_HALF + 9, TRACK_HALF + 17);
-          if (large.length) this.place(placements, rng.pick(large), back, -d0 - z - 2, rng.range(4.5, 8), rng);
+          const back = side * rng.range(SCENE_HALF + 9, SCENE_HALF + 17);
+          if (large.length) this.place(placements, rng.pick(large), back + side * by, -d0 - z - 2, rng.range(4.5, 8), rng);
           else decor(s, p, b, back, -d0 - z - 2, rng);
         }
         if (small.length && rng.chance(0.6)) {

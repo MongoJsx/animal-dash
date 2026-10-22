@@ -4,9 +4,8 @@
 // else); the hopping and waving happen in the vertex shader off one time
 // uniform, so a frame costs nothing on the CPU.
 import * as THREE from 'three';
-import { RACE_LENGTH } from '../config.ts';
+import { RACE_LENGTH, TRACK_HALF } from '../config.ts';
 import { Rng } from '../core/rng.ts';
-import { TRACK_HALF } from './scenery.ts';
 
 const SHIRTS = [0xe63946, 0xffbe0b, 0x3a86ff, 0x2ec4b6, 0xff6b9d, 0x8338ec, 0xfb5607, 0x06d6a0, 0xffffff];
 const SKIN = 0xc8915a, PANTS = 0x2b2d42;

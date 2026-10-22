@@ -3,14 +3,14 @@
 // country: tuk-tuks and elephants, stone lions and lion dancers, daruma and
 // Nara deer. Built in the same local frames as obstacleView's greybox.
 import * as THREE from 'three';
-import { LANE_WIDTH } from '../config.ts';
+import { LANE_COUNT, LANE_WIDTH } from '../config.ts';
 import { BIOMES, type CountryId } from '../world/biomes.ts';
 import { PENDULUM, SWEEPER, type Obstacle } from '../world/obstacles.ts';
 import { GOLD, GOLD_DARK, ball, blob, cone, cylinder, rod } from './kit.ts';
 import type { Shapes } from './shapes.ts';
 
 const W = LANE_WIDTH - 0.3;
-const TRACK_W = LANE_WIDTH * 3;
+const trackW = () => LANE_WIDTH * LANE_COUNT;
 
 export const countryOf = (o: Obstacle): CountryId | undefined => BIOMES[o.biome].country;
 
@@ -169,10 +169,10 @@ export function countryStatic(o: Obstacle, s: Shapes): boolean {
     case 'gap': {
       const water = c === 'cn' ? 0x2f8f7a : c === 'jp' ? 0x2a6f97 : 0x3f8f6a;
       const edge = c === 'cn' ? 0x8f8a80 : c === 'jp' ? 0x7f7a72 : 0x6b4a2b;
-      s.box(water, 0, -0.35, z, TRACK_W + 0.6, 0.06, o.length);
-      s.box(0x1f3f3a, 0, -0.6, z, TRACK_W + 0.6, 0.06, o.length);
-      s.box(edge, 0, 0.0, -0.06, TRACK_W + 0.6, 0.12, 0.14).box(edge, 0, 0.0, -o.length + 0.06, TRACK_W + 0.6, 0.12, 0.14);
-      s.box(edge, -TRACK_W / 2 - 0.3, -0.25, z, 0.12, 0.5, o.length).box(edge, TRACK_W / 2 + 0.3, -0.25, z, 0.12, 0.5, o.length);
+      s.box(water, 0, -0.35, z, trackW() + 0.6, 0.06, o.length);
+      s.box(0x1f3f3a, 0, -0.6, z, trackW() + 0.6, 0.06, o.length);
+      s.box(edge, 0, 0.0, -0.06, trackW() + 0.6, 0.12, 0.14).box(edge, 0, 0.0, -o.length + 0.06, trackW() + 0.6, 0.12, 0.14);
+      s.box(edge, -trackW() / 2 - 0.3, -0.25, z, 0.12, 0.5, o.length).box(edge, trackW() / 2 + 0.3, -0.25, z, 0.12, 0.5, o.length);
       if (c === 'cn') for (let i = 0; i < 5; i++) s.add(new THREE.CircleGeometry(0.35, 8), 0x5a9a3a, -3 + i * 1.5, -0.31, z + Math.sin(i * 2) * o.length * 0.3, -X);
       if (c === 'jp') for (let i = 0; i < 3; i++) s.add(ICO1, i % 2 ? 0xff8c42 : 0xffffff, -2 + i * 2, -0.38, z + (i - 1) * 0.6, 0, 0.6 * i, 0, 0.15, 0.06, 0.45);
       if (c === 'th') for (let i = 0; i < 4; i++) ball(s, 0x6fbf4f, -3 + i * 2, -0.3, z + Math.cos(i) * 0.8, 0.3, 0.15);

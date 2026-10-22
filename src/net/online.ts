@@ -19,7 +19,10 @@ export type NetMove = 'jump' | 'bounce' | 'slide' | 'stumble' | 'fall' | 'launch
 
 export type NetMsg =
   | { t: 'char'; id: string }
-  | { t: 'start'; seed: number; map?: string; at?: number } // at: host clock (ms) when the start sequence begins
+  | { t: 'pick'; seed: number; map: string; lanes: number; items: ItemKind[] } // host: everyone to the runner select for this race
+  | { t: 'rules'; map: string; lanes: number; items: ItemKind[] } // host changed the race settings in the room
+  | { t: 'ready' } // I've picked and I'm ready
+  | { t: 'start'; seed: number; map?: string; lanes?: number; items?: ItemKind[]; at?: number } // at: host clock (ms) when the start sequence begins
   | { t: 'again' }
   | { t: 's'; d: number; x: number; y: number; v: number; w?: number; f?: number } // w: host clock (ms) when sent; f: my finish time, once over the line
   | { t: 'm'; m: NetMove }
@@ -27,7 +30,8 @@ export type NetMsg =
   | { t: 'ink' } // you were ahead of me when I used ink
   | { t: 'sh'; on: boolean } // my shield went up / popped
   | { t: 'rk'; on: boolean } // my rocket lit / ran out
-  | { t: 'it'; k: ItemKind | null }; // the item I'm holding
+  | { t: 'it'; k: ItemKind | null } // the item I'm holding
+  | { t: 'ob'; id: number }; // I smashed this obstacle: it's gone for you too
 
 /** Clock sync: the guest sends `a` (its clock), the host answers with `b` (its own). */
 type Wire = NetMsg | { t: 'hello' } | { t: 'ping' } | { t: 'bye' } | { t: 'sync'; a: number; b?: number };

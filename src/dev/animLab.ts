@@ -8,13 +8,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLAYER } from '../config.ts';
 import { CharacterView, loadCharacters, type AnimState } from '../render/character.ts';
+import { RocketPack } from '../render/itemView.ts';
 import type { ProcRig } from '../render/rig.ts';
 
 const params = new URLSearchParams(location.search);
 const capture = params.has('capture');
 if (capture) document.body.classList.add('capture');
 
-const STATES: AnimState[] = ['idle', 'run', 'jump', 'slide', 'stumble', 'fall', 'victory', 'defeat', 'marks', 'set', 'burst'];
+const STATES: AnimState[] = ['idle', 'run', 'jump', 'slide', 'stumble', 'fall', 'victory', 'defeat', 'marks', 'set', 'burst', 'fly'];
 const airTime = (v: number) => (2 * v) / PLAYER.gravity;
 const DURATION: Partial<Record<AnimState, number>> = { jump: airTime(PLAYER.jumpVelocity), slide: PLAYER.slideTime, stumble: 0.9, fall: 0.8, burst: 1.25 };
 const SPACING = 1.7;
@@ -63,6 +64,10 @@ const views = chars.map((def) => {
   return v;
 });
 await Promise.all(views.map((v) => v.ready));
+// The rocket pack rides on the back in the 'fly' pose, as in the game.
+const packs = views.map(() => { const r = new RocketPack(); scene.add(r.root); return r; });
+const syncPacks = (dt: number) => views.forEach((v, i) =>
+  packs[i].update(state === 'fly', v.root.position.x, v.root.position.y, -v.root.position.z, dt));
 
 const span = (chars.length - 1) * SPACING;
 // Side view lines the runners up front to back so none hides another.
@@ -170,6 +175,7 @@ if (capture) {
       v.update(0, speed, 0);
     }
   }
+  syncPacks(0);
   renderer.render(scene, camera);
   Object.assign(window, { __ready: true });
 } else {
@@ -178,6 +184,7 @@ if (capture) {
   renderer.setAnimationLoop(() => {
     step(Math.min(0.05, clock.getDelta()) * slow);
     controls.update();
+    syncPacks(1 / 60);
     renderer.render(scene, camera);
   });
 }

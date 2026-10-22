@@ -2,12 +2,24 @@
   {
     "id": "luobotu",
     "name": "กระต่ายหลัวโป",
-    "model": "/assets/characters/luobotu.glb"
+    "model": "/assets/characters/luobotu.glb",
+    "stats": {
+      "speed": 4,
+      "accel": 5,
+      "strength": 1,
+      "stamina": 2
+    }
   },
   {
     "id": "pug_outfit",
     "name": "ปั๊กฮู้ดดี้",
-    "model": "/assets/characters/pug_outfit.glb"
+    "model": "/assets/characters/pug_outfit.glb",
+    "stats": {
+      "speed": 3,
+      "accel": 3,
+      "strength": 3,
+      "stamina": 3
+    }
   },
   {
     "id": "bojack_horseman_meshy",
@@ -16,12 +28,24 @@
     "anim": {
       "armSpread": 6,
       "armSwing": 0.5
+    },
+    "stats": {
+      "speed": 5,
+      "accel": 3,
+      "strength": 2,
+      "stamina": 2
     }
   },
   {
     "id": "snoop_dog_but_dog_style",
     "name": "หมาแว่น",
-    "model": "/assets/characters/snoop_dog_but_dog_style.glb"
+    "model": "/assets/characters/snoop_dog_but_dog_style.glb",
+    "stats": {
+      "speed": 3,
+      "accel": 4,
+      "strength": 2,
+      "stamina": 3
+    }
   },
   {
     "id": "velkara",
@@ -29,6 +53,12 @@
     "model": "/assets/characters/velkara.glb",
     "anim": {
       "armSpread": 8
+    },
+    "stats": {
+      "speed": 4,
+      "accel": 4,
+      "strength": 2,
+      "stamina": 2
     }
   },
   {
@@ -38,11 +68,23 @@
     "anim": {
       "armSpread": 16,
       "armSwing": 0.8
+    },
+    "stats": {
+      "speed": 2,
+      "accel": 2,
+      "strength": 5,
+      "stamina": 3
     }
   },
   {
     "id": "hippo_runner",
     "name": "ฮิปโปซิ่ง",
-    "model": "/assets/characters/hippo_runner.glb"
+    "model": "/assets/characters/hippo_runner.glb",
+    "stats": {
+      "speed": 2,
+      "accel": 2,
+      "strength": 4,
+      "stamina": 4
+    }
   }
 ]

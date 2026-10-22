@@ -184,8 +184,10 @@ export class RocketPack {
     this.t += dt;
     const f = 0.8 + Math.sin(this.t * 47) * 0.15 + Math.random() * 0.2;
     for (const c of this.root.children.slice(-2)) c.scale.set(1, f, 1);
-    // On the back (+z is behind a runner heading down the track).
-    this.root.position.set(x, y + 1.1, -d + 0.24);
+    // Flat on the back of a runner flying face down (the 'fly' pose), nose
+    // forward and the flames trailing behind (+z is behind them).
+    this.root.position.set(x, y + 1.2, -d - 0.2);
+    this.root.rotation.x = -Math.PI / 2;
   }
 }
 

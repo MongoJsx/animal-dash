@@ -3,7 +3,7 @@
 // are cached merged geometry, moving parts are updated from the same pure
 // functions the collision code uses.
 import * as THREE from 'three';
-import { LANE_WIDTH, laneX } from '../config.ts';
+import { LANE_COUNT, LANE_WIDTH, laneX } from '../config.ts';
 import { BIOMES, type BiomeId, type Palette } from '../world/biomes.ts';
 import {
   DROP, PENDULUM, SWEEPER, dropProgress, movingD, pendulumAngle, shifterX,
@@ -18,7 +18,7 @@ import { Shapes, flatMaterial, shadowMaterial } from './shapes.ts';
 const ghostMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.22, depthWrite: false });
 
 const W = LANE_WIDTH - 0.3; // visual width of a one-lane obstacle
-const TRACK_W = LANE_WIDTH * 3;
+const trackW = () => LANE_WIDTH * LANE_COUNT;
 const geoCache = new Map<string, THREE.BufferGeometry | null>();
 
 /** Build once per key; null when nothing procedural is left (a model replaced it all). */
@@ -149,8 +149,8 @@ function staticGeometry(o: Obstacle, modelled: boolean): THREE.BufferGeometry | 
     case 'hay': return modelled ? null : cached(k, (s) => hay(s, o.biome, p, o.length));
     case 'gap': return cached(k, (s) => {
       const water = o.biome === 'harbor' || o.biome === 'village' ? 0x2a6f97 : o.biome === 'candy' ? 0x5c3a21 : o.biome === 'snow' ? 0x89c2d9 : 0x3d2b1f;
-      s.box(water, 0, -0.02, -o.length / 2, TRACK_W + 0.6, 0.06, o.length);
-      s.box(p.d, 0, 0.04, -0.05, TRACK_W + 0.6, 0.1, 0.12).box(p.d, 0, 0.04, -o.length + 0.05, TRACK_W + 0.6, 0.1, 0.12);
+      s.box(water, 0, -0.02, -o.length / 2, trackW() + 0.6, 0.06, o.length);
+      s.box(p.d, 0, 0.04, -0.05, trackW() + 0.6, 0.1, 0.12).box(p.d, 0, 0.04, -o.length + 0.05, trackW() + 0.6, 0.1, 0.12);
     });
     case 'slow': return cached(k, (s) => {
       const goo = o.biome === 'candy' ? 0xc68642 : o.biome === 'snow' ? 0xf8fbff : o.biome === 'harbor' ? 0x8d99ae : 0x6b4a2b;

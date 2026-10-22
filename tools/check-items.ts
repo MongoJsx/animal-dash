@@ -1,7 +1,7 @@
 // Item boxes: placed the same for a seed, never inside an obstacle row, and in
 // a simulated race runners pick them up and every item does its job.
 // Usage: npx tsx tools/check-items.ts
-import { ITEM, START_SLOTS, TICK } from '../src/config.ts';
+import { ITEM, LANES, TICK, laneX, setLaneCount } from '../src/config.ts';
 import type { Action } from '../src/core/input.ts';
 import { Player } from '../src/entities/player.ts';
 import { Rival } from '../src/entities/rival.ts';
@@ -42,10 +42,11 @@ const used: Record<string, number> = {};
 let pickups = 0, blocks = 0, springHits = 0, rivalUses = 0, rivalPickups = 0, flightStart = 0, rivalFlights = 0;
 const flights: number[] = [];
 for (let seed = 1; seed <= 40; seed++) {
+  setLaneCount(3 + (seed % 3));
   const track = buildTrack(seed, 'thai');
   const p = new Player();
-  p.startSlot(START_SLOTS[0], -1);
-  const rivals = [[1, 0], [2, 1], [3, 1]].map(([slot, lane], i) => new Rival(seed * 7 + i, { mistake: 0.3, pace: 1 }, START_SLOTS[slot], lane));
+  p.startSlot(laneX(LANES[0]), LANES[0]);
+  const rivals = LANES.slice(1).map((lane, i) => new Rival(seed * 7 + i, { mistake: 0.3, pace: 1 }, laneX(lane), lane));
   p.launch();
   for (const r of rivals) r.launch();
   const order: ItemKind[] = ['boost', 'shield', 'ink', 'spring', 'rocket'];
@@ -97,9 +98,10 @@ console.log(`race: player picked ${pickups}, used`, used, `shield blocks ${block
 // ── A player who never presses the item button ────────────────────────
 // Every box they run through gives a fresh roll, replacing the one held.
 {
+  setLaneCount(3);
   const track = buildTrack(3, 'thai');
   const p = new Player();
-  p.startSlot(START_SLOTS[0], -1);
+  p.startSlot(laneX(-1), -1);
   p.launch();
   let t = 0, got = 0;
   for (let step = 0; step < 60 * 200 && !p.finished; step++) {

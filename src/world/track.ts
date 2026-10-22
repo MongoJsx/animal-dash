@@ -1,13 +1,12 @@
 // Builds the whole race track from a seed: rows of hand-designed patterns,
 // with tier gating, cooldowns so nothing repeats back to back, and breathers.
-import { BIOME_LENGTH, FINISH_CLEAR, RACE_LENGTH, START_CLEAR, baseSpeed } from '../config.ts';
+import { BIOME_LENGTH, FINISH_CLEAR, LANE_COUNT, LANES, RACE_LENGTH, START_CLEAR, baseSpeed } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 import { biomeAt, pickBiomes, type BiomeId, type MapId } from './biomes.ts';
 import { placeItems, type ItemBox } from './items.ts';
 import type { Kind, Obstacle } from './obstacles.ts';
 
-type Lane = -1 | 0 | 1;
-const LANES: Lane[] = [-1, 0, 1];
+type Lane = number;
 
 interface Part {
   kind: Kind;
@@ -27,7 +26,12 @@ interface Pattern {
   build(rng: Rng): Part[];
 }
 
-const others = (rng: Rng, n: number): Lane[] => rng.shuffle([...LANES]).slice(0, n) as Lane[];
+// Patterns are written for any lane count (LANES is read when a row is built):
+// "all but one" blocks every lane but one, and rows that put a few hazards
+// down add one more for each lane past three, so a wider track isn't easier.
+const others = (rng: Rng, n: number): Lane[] => rng.shuffle([...LANES]).slice(0, Math.min(n, LANE_COUNT));
+const extra = () => LANE_COUNT - 3;
+const allButOne = () => LANE_COUNT - 1;
 
 const PATTERNS: Pattern[] = [
   // ── Tier 1: one clear read ───────────────────────────────────────────
@@ -36,14 +40,14 @@ const PATTERNS: Pattern[] = [
   { id: 'slide-row', tier: 1, weight: 3, main: 'highbar',
     build: () => LANES.map((lane) => ({ kind: 'highbar', lane })) },
   { id: 'two-walls', tier: 1, weight: 3, main: 'wall',
-    build: (r) => others(r, 2).map((lane) => ({ kind: 'wall', lane, length: 1.6 })) },
+    build: (r) => others(r, allButOne()).map((lane) => ({ kind: 'wall', lane, length: 1.6 })) },
   { id: 'mixed-row', tier: 1, weight: 3, main: 'wall',
-    build: (r) => {
-      const [a, b, c] = others(r, 3);
-      return [{ kind: 'lowbar', lane: a }, { kind: 'highbar', lane: b }, { kind: 'wall', lane: c, length: 1.6 }];
-    } },
+    build: (r) => others(r, LANE_COUNT).map((lane, i): Part => {
+      const kind: Kind = i === 0 ? 'lowbar' : i === 1 ? 'highbar' : i === 2 ? 'wall' : r.pick<Kind>(['lowbar', 'highbar', 'wall']);
+      return { kind, lane, length: kind === 'wall' ? 1.6 : undefined };
+    }) },
   { id: 'hay-pair', tier: 1, weight: 2, main: 'hay',
-    build: (r) => others(r, 2).map((lane) => ({ kind: 'hay', lane, length: 1.4 })) },
+    build: (r) => others(r, allButOne()).map((lane) => ({ kind: 'hay', lane, length: 1.4 })) },
   { id: 'bounce-over', tier: 1, weight: 1.5, main: 'bounce',
     build: (r) => {
       const pad = r.pick(LANES);
@@ -56,41 +60,37 @@ const PATTERNS: Pattern[] = [
   // ── Tier 2: longer reads, movement, floor tricks ─────────────────────
   { id: 'market-alley', tier: 2, weight: 3, main: 'wall',
     build: (r) => {
-      // Weave through stalls, then duck under a banner across the street.
-      const [a, b, c] = others(r, 3);
+      // Weave through stalls (one gap, then another), then duck under a banner across the street.
+      const [a, b, c, ...rest] = others(r, LANE_COUNT);
       return [
         { kind: 'wall', lane: a, length: 1.6 }, { kind: 'hay', lane: b, length: 1.4 },
+        ...rest.map((lane): Part => ({ kind: r.chance(0.5) ? 'wall' : 'hay', lane, length: 1.5 })),
         { kind: 'wall', lane: c, at: 11, length: 1.6 }, { kind: 'lowbar', lane: a, at: 11 },
+        ...rest.map((lane): Part => ({ kind: 'wall', lane, at: 11, length: 1.6 })),
         ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 22 })),
       ];
     } },
   { id: 'stampede', tier: 2, weight: 2, main: 'oncoming',
-    build: (r) => {
-      const [a, b] = others(r, 2);
-      return [
-        { kind: 'oncoming', lane: a, length: 3.2, speed: r.range(6, 8) },
-        { kind: 'oncoming', lane: b, at: 14, length: 3.2, speed: r.range(6, 8) },
-      ];
-    } },
+    build: (r) => others(r, 2 + extra()).map((lane, i) => ({ kind: 'oncoming', lane, at: (i % 2) * 14, length: 3.2, speed: r.range(6, 8) })) },
   { id: 'oncoming', tier: 2, weight: 2.5, main: 'oncoming',
     build: (r) => {
-      const [a, b] = others(r, 2);
-      return [{ kind: 'oncoming', lane: a, length: 3.2, speed: r.range(6, 9) }, { kind: 'hay', lane: b, at: 6, length: 1.4 }];
+      const [a, ...hay] = others(r, 2 + extra());
+      return [{ kind: 'oncoming', lane: a, length: 3.2, speed: r.range(6, 9) }, ...hay.map((lane): Part => ({ kind: 'hay', lane, at: 6, length: 1.4 }))];
     } },
   { id: 'rolling-pair', tier: 2, weight: 2.5, main: 'rolling',
-    build: (r) => {
-      const [a, b] = others(r, 2);
-      return [{ kind: 'rolling', lane: a, length: 1.2, speed: 5 }, { kind: 'rolling', lane: b, at: 12, length: 1.2, speed: 5 }];
-    } },
+    build: (r) => others(r, 2 + extra()).map((lane, i) => ({ kind: 'rolling', lane, at: (i % 2) * 12, length: 1.2, speed: 5 })) },
   { id: 'slow-lanes', tier: 2, weight: 1.5, main: 'slow',
     build: (r) => {
-      const [a, b, c] = others(r, 3);
-      return [{ kind: 'slow', lane: a, length: 14 }, { kind: 'slow', lane: b, length: 14 }, { kind: 'lowbar', lane: c, at: 6 }];
+      const lanes = others(r, LANE_COUNT);
+      const open = lanes.pop()!;
+      return [...lanes.map((lane): Part => ({ kind: 'slow', lane, length: 14 })), { kind: 'lowbar', lane: open, at: 6 }];
     } },
   { id: 'zigzag', tier: 2, weight: 2, main: 'wall',
     build: (r) => {
-      const free: Lane[] = r.chance(0.5) ? [-1, 0, 1] : [1, 0, -1];
-      // The open lane steps across the track; each step needs exactly one lane change.
+      // The open lane steps across three neighbouring lanes; each step needs exactly one lane change.
+      const from = r.int(0, LANE_COUNT - 3);
+      const path = LANES.slice(from, from + 3);
+      const free = r.chance(0.5) ? path : path.reverse();
       return free.flatMap((open, i) => LANES.filter((l) => l !== open)
         .map((lane): Part => ({ kind: 'wall', lane, at: i * 13, length: 1.6 })));
     } },
@@ -106,10 +106,10 @@ const PATTERNS: Pattern[] = [
   { id: 'spike-field', tier: 3, weight: 2, main: 'spikes',
     build: (r) => {
       const base = r.next();
-      return LANES.map((lane, i) => ({ kind: 'spikes', lane, length: 2.4, period: 2.2, phase: base + i / 3 }));
+      return LANES.map((lane, i) => ({ kind: 'spikes', lane, length: 2.4, period: 2.2, phase: base + i / LANE_COUNT }));
     } },
   { id: 'drops', tier: 3, weight: 2, main: 'drop',
-    build: (r) => others(r, 2).map((lane, i) => ({ kind: 'drop', lane, at: i * 11, length: 1.6 })) },
+    build: (r) => others(r, 2 + extra()).map((lane, i) => ({ kind: 'drop', lane, at: (i % 2) * 11, length: 1.6 })) },
   { id: 'sweeper', tier: 3, weight: 1.5, main: 'sweeper',
     build: (r) => [{ kind: 'sweeper', length: 7.4, period: r.range(2.2, 2.8), phase: r.next() }] },
 
@@ -119,9 +119,10 @@ const PATTERNS: Pattern[] = [
     build: () => [...LANES.map((lane): Part => ({ kind: 'lowbar', lane })), ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 14 }))] },
   { id: 'gauntlet', tier: 4, weight: 2, main: 'wall',
     build: (r) => {
-      const [a, b] = others(r, 2);
+      const [a, b, ...walls] = others(r, 2 + extra());
       return [
         { kind: 'wall', lane: a, length: 1.6 }, { kind: 'oncoming', lane: b, length: 3.2, speed: 7 },
+        ...walls.map((lane): Part => ({ kind: 'wall', lane, length: 1.6 })),
         ...LANES.map((lane): Part => ({ kind: 'lowbar', lane, at: 16 })),
         ...LANES.map((lane): Part => ({ kind: 'highbar', lane, at: 27 })),
       ];
@@ -133,11 +134,11 @@ const PATTERNS: Pattern[] = [
     ] },
   { id: 'spikes-rolling', tier: 4, weight: 1.5, main: 'spikes',
     build: (r) => {
-      const [a, b] = others(r, 2);
+      const [a, ...hay] = others(r, 2 + extra());
       return [
         { kind: 'rolling', lane: a, length: 1.2, speed: 6 },
-        ...LANES.map((lane, i): Part => ({ kind: 'spikes', lane, at: 16, length: 2.4, period: 2.0, phase: i / 3 })),
-        { kind: 'hay', lane: b, at: 4, length: 1.4 },
+        ...LANES.map((lane, i): Part => ({ kind: 'spikes', lane, at: 16, length: 2.4, period: 2.0, phase: i / LANE_COUNT })),
+        ...hay.map((lane): Part => ({ kind: 'hay', lane, at: 4, length: 1.4 })),
       ];
     } },
 ];
@@ -148,6 +149,7 @@ const GATE_CLEAR = 14;
 
 export interface Track {
   seed: number;
+  lanes: number; // lane count it was built for
   map: MapId;
   biomes: BiomeId[];
   obstacles: Obstacle[]; // sorted by d
@@ -214,5 +216,5 @@ export function buildTrack(seed: number, map: MapId = 'fable'): Track {
   }
 
   obstacles.sort((a, b) => a.d - b.d);
-  return { seed, map, biomes, obstacles, rows, items: placeItems(seed, rows) };
+  return { seed, map, lanes: LANE_COUNT, biomes, obstacles, rows, items: placeItems(seed, rows) };
 }
