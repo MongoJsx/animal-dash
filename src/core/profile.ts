@@ -11,6 +11,8 @@ export interface Profile {
   best: Record<string, number>;
   char?: string;
   lanes?: number;
+  /** Bots wanted on the line beside the players (as many as fit when unset). */
+  bots?: number;
   /** Items switched on for races (all of them when unset). */
   items?: string[];
 }

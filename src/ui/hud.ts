@@ -21,9 +21,11 @@ function bestStat(s: Stats): Role {
   return STAT_NAMES.find(([k]) => s[k] === best)![0];
 }
 /** The race settings chosen in the room. */
-export interface Rules { map: MapId; lanes: number; items: ItemKind[] }
-/** "🇯🇵 ญี่ปุ่น · 5 เลน · ไอเท็ม 3/5" for the room's settings pill. */
-const rulesLine = (r: Rules) => `${MAPS[r.map].flag} ${MAPS[r.map].name} · ${r.lanes} เลน · ${
+export interface Rules { map: MapId; lanes: number; items: ItemKind[]; bots: number }
+/** Bots that fit beside `players` players. */
+const botsOn = (r: Rules, players: number) => Math.max(0, Math.min(r.bots, r.lanes - players));
+/** "🇯🇵 ญี่ปุ่น · 5 เลน · 🤖 3 · ไอเท็ม 3/5" for the room's settings pill. */
+const rulesLine = (r: Rules, players: number) => `${MAPS[r.map].flag} ${MAPS[r.map].name} · ${r.lanes} เลน · 🤖 ${botsOn(r, players)} · ${
   r.items.length === ITEM_KINDS.length ? 'ไอเท็มครบ' : r.items.length ? `ไอเท็ม ${r.items.length}/${ITEM_KINDS.length}` : 'ไม่มีไอเท็ม'}`;
 const roleOf = (s: Stats) => `${ROLE_ICON[bestStat(s)]} ${ROLE[bestStat(s)]}`;
 
@@ -77,6 +79,11 @@ export class Hud {
   private dashState = '';
   /** The held item, over the runner's head (a tap anywhere uses it). */
   private itemBtn: HTMLButtonElement;
+  private useBtn: HTMLElement;
+  private useIcon: HTMLElement;
+  /** Race buttons: the game wires these to the input. */
+  onDash = () => {};
+  onUse = () => {};
   private itemIcon: HTMLElement;
   private itemCount: HTMLElement;
   private itemKey = '';
@@ -110,8 +117,17 @@ export class Hud {
     this.toast = el('div', 'toast', this.root);
     this.big = el('div', 'big', this.root);
     this.sub = el('div', 'big-sub', this.root);
-    // Dash meter up the left edge; full, it says how to fire it, written along the bar.
-    this.dashBar = el('div', 'dash-bar', this.race, `<div class="dash-fill"></div><span class="dash-text">${desktop ? 'SHIFT · DASH' : 'DOUBLE TAP'}</span><b class="dash-ico">⚡</b>`);
+    // Dash: a round thumb button in the bottom-left corner whose ring fills up; full, it glows and fires on touch.
+    this.dashBar = el('button', 'dash-bar', this.race, `<i class="dash-fill"></i><b class="dash-ico">⚡</b><span class="dash-text">${desktop ? 'SHIFT' : 'DASH'}</span>`);
+    this.dashBar.setAttribute('aria-label', 'แดช');
+    // The held item again, as a thumb button in the bottom-right corner (a tap anywhere works too).
+    this.useBtn = el('button', 'use-item', this.race, `<span class="use-icon"></span><span class="use-text">${desktop ? 'Q' : 'ใช้'}</span>`);
+    this.useBtn.setAttribute('aria-label', 'ใช้ไอเท็ม');
+    this.useIcon = this.useBtn.querySelector<HTMLElement>('.use-icon')!;
+    // Touch-down fires at once, and the touch never also counts as a tap or swipe on the track.
+    const press = (b: HTMLElement, fn: () => void) => b.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); fn(); });
+    press(this.dashBar, () => this.onDash());
+    press(this.useBtn, () => this.onUse());
     // Just a sign: a tap anywhere uses it.
     this.itemBtn = el('button', 'head-item', this.race, '<i class="ring"></i><i class="ring"></i><i class="ring"></i><span class="item-icon"></span>');
     this.itemBtn.setAttribute('aria-label', 'ใช้ไอเท็ม');
@@ -136,7 +152,7 @@ export class Hud {
     this.inkBox.classList.remove('show');
     const controls = desktop
       ? [['← →', 'เปลี่ยนเลน'], ['↑ / Space', 'กระโดด'], ['↓', 'สไลด์'], ['Shift', 'แดช'], ['Q', 'ใช้ไอเท็ม']]
-      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['แตะ 2 ครั้ง', 'แดช (เกจซ้ายล่างเต็ม)'], ['แตะ 1 ครั้ง', 'ใช้ไอเท็ม']];
+      : [['ปัด ← →', 'เปลี่ยนเลน'], ['ปัด ↑', 'กระโดด'], ['ปัด ↓', 'สไลด์'], ['ปุ่ม ⚡ ซ้ายล่าง', 'แดช (เมื่อวงเต็ม)'], ['แตะจอ / ปุ่มขวาล่าง', 'ใช้ไอเท็ม']];
     this.menu.innerHTML = `
       <div class="petals">${PETALS}</div>
       <div class="topbar">
@@ -278,7 +294,8 @@ export class Hud {
    */
   showPick(o: {
     chars: CharacterDef[]; selected: string; taken: Record<string, string>;
-    rules: Rules; canEdit: boolean; onRules: (r: Rules) => void;
+    /** players: people in the room (they each need a lane). */
+    rules: Rules; canEdit: boolean; players: number; onRules: (r: Rules) => void;
     onPick: (id: string) => void; onReady: () => void; onBack: () => void;
   }) {
     this.menu.classList.add('hidden');
@@ -289,7 +306,7 @@ export class Hud {
       <div class="pick-top">
         <button class="back-btn" aria-label="กลับ">‹</button>
         <div class="pick-title"><b>เลือกนักวิ่ง</b>
-          <button class="rules-btn" ${o.canEdit ? '' : 'disabled'}>${rulesLine(o.rules)}<i>${o.canEdit ? '⚙' : '🔒'}</i></button>
+          <button class="rules-btn" ${o.canEdit ? '' : 'disabled'}>${rulesLine(o.rules, o.players)}<i>${o.canEdit ? '⚙' : '🔒'}</i></button>
         </div>
       </div>
       <div class="rules modal hidden"><div class="help-card rules-card"></div></div>
@@ -329,12 +346,12 @@ export class Hud {
       };
     });
     this.pick.querySelector<HTMLButtonElement>('.ready-btn')!.onclick = () => { sound.click(); o.onReady(); };
-    if (o.canEdit) this.pick.querySelector<HTMLButtonElement>('.rules-btn')!.onclick = () => this.rulesSheet(o.rules, o.onRules);
+    if (o.canEdit) this.pick.querySelector<HTMLButtonElement>('.rules-btn')!.onclick = () => this.rulesSheet(o.rules, o.players, o.onRules);
     this.pick.querySelector<HTMLButtonElement>('.back-btn')!.onclick = () => { sound.tap(); o.onBack(); };
   }
 
-  /** Race settings: map, lanes and which items are in play. Applied when closed. */
-  private rulesSheet(current: Rules, apply: (r: Rules) => void) {
+  /** Race settings: map, lanes, bots and which items are in play. Applied when closed. */
+  private rulesSheet(current: Rules, players: number, apply: (r: Rules) => void) {
     sound.tap();
     const r: Rules = { ...current, items: [...current.items] };
     const box = this.pick.querySelector<HTMLElement>('.rules')!;
@@ -344,14 +361,18 @@ export class Hud {
       card.innerHTML = `<div class="help-title">ตั้งค่าการแข่ง</div>
         <div class="rule-h">ด่าน</div>
         <div class="maps">${MAP_IDS.map((m) => `<button class="map ${m === r.map ? 'on' : ''}" data-map="${m}"><span>${MAPS[m].flag}</span>${MAPS[m].name}</button>`).join('')}</div>
-        <div class="rule-h">ลู่วิ่ง</div>
-        <div class="lanes">${LANE_CHOICES.map((n) => `<button class="lane-n ${n === r.lanes ? 'on' : ''}" data-lanes="${n}"><b>${n}</b> เลน<i>${'<u></u>'.repeat(n)}</i></button>`).join('')}</div>
+        <div class="rule-h">ลู่วิ่ง <small>${players > 1 ? `ผู้เล่น ${players} คน` : 'คนละเลน'}</small></div>
+        <div class="lanes">${LANE_CHOICES.map((n) => `<button class="lane-n ${n === r.lanes ? 'on' : ''}" data-lanes="${n}" ${n < players ? 'disabled' : ''}><b>${n}</b> เลน<i>${'<u></u>'.repeat(n)}</i></button>`).join('')}</div>
+        <div class="rule-h">บอท <small>รวม ${players + botsOn(r, players)} คนในสนาม</small></div>
+        <div class="lanes bots" style="grid-template-columns: repeat(${r.lanes - players + 1}, 1fr)">${Array.from({ length: r.lanes - players + 1 }, (_, n) =>
+          `<button class="lane-n ${n === botsOn(r, players) ? 'on' : ''}" data-bots="${n}"><b>${n}</b>${n ? ' 🤖' : ' ไม่มี'}</button>`).join('')}</div>
         <div class="rule-h">ไอเท็ม <button class="all-items ${allOn ? 'on' : ''}" data-all>${allOn ? 'ปิดทั้งหมด' : 'เปิดทั้งหมด'}</button></div>
         <div class="itoggles">${ITEM_KINDS.map((k) => `<button class="itog ${r.items.includes(k) ? 'on' : ''}" data-item="${k}"><i>${ITEM_ICON[k]}</i><span>${ITEM_NAME[k]}</span></button>`).join('')}</div>
         ${r.items.length ? '' : '<div class="sheet-note">ปิดไอเท็มหมด: ไม่มีกล่อง ? บนสนาม วัดกันที่ฝีเท้าล้วน ๆ</div>'}
         <button class="help-close" data-done>เสร็จ</button>`;
       card.querySelectorAll<HTMLButtonElement>('.map').forEach((b) => { b.onclick = () => { sound.select(); r.map = b.dataset.map as MapId; draw(); }; });
-      card.querySelectorAll<HTMLButtonElement>('.lane-n').forEach((b) => { b.onclick = () => { sound.select(); r.lanes = Number(b.dataset.lanes); draw(); }; });
+      card.querySelectorAll<HTMLButtonElement>('[data-lanes]').forEach((b) => { b.onclick = () => { sound.select(); r.lanes = Number(b.dataset.lanes); draw(); }; });
+      card.querySelectorAll<HTMLButtonElement>('[data-bots]').forEach((b) => { b.onclick = () => { sound.select(); r.bots = Number(b.dataset.bots); draw(); }; });
       card.querySelectorAll<HTMLButtonElement>('.itog').forEach((b) => {
         b.onclick = () => {
           sound.select();
@@ -442,6 +463,8 @@ export class Hud {
     this.itemIcon.textContent = icon;
     this.itemCount.textContent = count > 1 ? `×${count}` : '';
     this.itemBtn.className = `head-item ${!item ? '' : rolling ? 'show rolling' : 'show ready'}`;
+    this.useIcon.textContent = icon;
+    this.useBtn.className = `use-item ${!item ? '' : rolling ? 'show rolling' : 'show ready'}`;
   }
 
   /** Keep the item over the runner's head (screen px), or hide it with null. */

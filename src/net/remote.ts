@@ -1,4 +1,5 @@
-// The friend's runner, rebuilt from their state packets. It keeps moving at
+// Another player's runner (or, on a guest's screen, one of the host's bots),
+// rebuilt from its state packets. It keeps moving at
 // the last known speed between packets and eases toward each new position,
 // so 20 Hz updates still look smooth. Each packet is moved on by its age on the
 // shared clock, so the friend is drawn where they are now, not where they were
@@ -9,6 +10,12 @@ import type { ItemKind } from '../world/items.ts';
 import type { NetMove } from './online.ts';
 
 export class Remote {
+  /** Their id in the room (a bot's is "b0", "b1", …). */
+  readonly id: string;
+  /** One of the host's bots. */
+  readonly bot: boolean;
+  /** Left the room: nobody waits for them at the line. */
+  gone = false;
   d = 0;
   x = 0;
   y = 0;
@@ -37,7 +44,9 @@ export class Remote {
   }
   private target: { d: number; x: number; y: number };
 
-  constructor(x: number) {
+  constructor(id: string, x: number, bot = false) {
+    this.id = id;
+    this.bot = bot;
     this.x = x;
     this.target = { d: 0, x, y: 0 };
   }

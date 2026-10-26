@@ -2,14 +2,14 @@
 import * as THREE from 'three';
 import { BASE_STATS, BODY, DASH, ITEM, LANES, LANE_COUNT, PLAYER, laneX, RACE_LENGTH, TICK, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED, setLaneCount, laneIndex, nearestLane } from './config.ts';
 import { COUNTDOWN_GO, sound, type Surface } from './core/audio.ts';
-import { DOUBLE_GAP, Input, type Action } from './core/input.ts';
+import { Input } from './core/input.ts';
 import { Rng } from './core/rng.ts';
 import { profile, recordRace, saveProfile } from './core/profile.ts';
 import { botActions } from './entities/bot.ts';
 import { resolveContacts } from './entities/contact.ts';
 import { Player, type PlayerEvent } from './entities/player.ts';
 import { Rival, type RivalSkill, type Traffic } from './entities/rival.ts';
-import { Online, type NetMove, type NetMsg } from './net/online.ts';
+import { Online, ROOM_MAX, type BotState, type Member, type NetMove, type NetMsg, type NetRules, type Seat } from './net/online.ts';
 import { Remote } from './net/remote.ts';
 import { CharacterView, preloadCharacters, type AnimState, type CharacterDef } from './render/character.ts';
 import { installBend, setBendPath } from './render/bend.ts';
@@ -23,7 +23,7 @@ import { Bubble, ItemBoxes, ItemTag, RocketPack } from './render/itemView.ts';
 import { warmUpProps } from './render/props.ts';
 import { ObstacleView } from './render/obstacleView.ts';
 import { Podium } from './render/podium.ts';
-import { Hud, byFinish, desktop, type Racer } from './ui/hud.ts';
+import { Hud, byFinish, desktop, type Racer, type Rules } from './ui/hud.ts';
 import { BIOMES, MAPS, biomeAt, isMapId, type BiomeId, type MapId } from './world/biomes.ts';
 import { sunDirection } from './render/sky.ts';
 import { ITEM_ICON, ITEM_KINDS, ITEM_NAME, rollItem, touches, type ItemKind } from './world/items.ts';
@@ -43,8 +43,15 @@ const SKILLS: RivalSkill[] = [
   { mistake: 0.22, pace: 0.99 },
 ];
 const COLORS = ['#e04a3a', '#f6b73c', '#4fae6a', '#2a7fd4', '#8a6bd1'];
-/** Which lane (index from the left) is yours: the middle one; online, the guest takes the one beside the host. */
-const myLaneIndex = (guest = false) => Math.floor((LANE_COUNT - 1) / 2) + (guest ? 1 : 0);
+/** Lanes (index from the left) in the order runners take them: the middle one first, then outwards. */
+const laneOrder = (n: number) => {
+  const mid = Math.floor((n - 1) / 2);
+  return [0, 1, -1, 2, -2].map((k) => mid + k).filter((i) => i >= 0 && i < n);
+};
+/** Bots run under ids like this, so they never clash with a player's. */
+const isBot = (id: string) => id.startsWith('~');
+/** Solo, the player's id on the line. */
+const SOLO_ID = 'me';
 const airTime = (v: number) => (2 * v) / PLAYER.gravity;
 
 // Start sequence: "On your marks", then the 3-2-1 count (a beep a second, the
@@ -65,7 +72,8 @@ const START_LEAD = 1.5; // online: the start sequence begins this long after the
 const START_MIRROR = 1.2; // online: after the launch, a friend is drawn at least at our speed this long
 const MAX_CATCH_UP = 0.25; // online: most race time (s) one frame may simulate to keep up with the shared clock
 
-interface RivalEntry { sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number; bubble: Bubble; shield: boolean; rocket: RocketPack; tag: ItemTag }
+/** A runner other than the player: a bot simulated here, or someone else's runner (a bot of the host's, on a guest). `sent`: host, the bot's moves already passed on. */
+interface RivalEntry { id: string; sim: Rival | Remote; view: CharacterView; def: CharacterDef; lock: number; moveIndex: number; sent: number; bubble: Bubble; shield: boolean; rocket: RocketPack; tag: ItemTag }
 
 const POP_COLORS = [0x7ae0ff, 0xffffff, 0xbdf3ff];
 const INK_COLORS = [0x120c24, 0x2a1f4d, 0x000000];
@@ -98,9 +106,16 @@ export class Game {
   private itemsOn: ItemKind[] = ITEM_KINDS.filter((k) => !profile.items || profile.items.includes(k));
   /** Seed of the field standing on the line in the runner select. */
   private fieldSeed = 0;
-  /** Online runner select: who has pressed ready. */
-  private readyMe = false;
-  private readyFriend = false;
+  /** Bots wanted on the line (as many as fit beside the players). */
+  private botCount = profile.bots ?? ROOM_MAX - 1;
+  /** Everyone in the room, the host first (solo: just you). */
+  private members: Member[] = [];
+  /** Online: where the room is (the host's word for it on a guest). */
+  private stage: 'lobby' | 'pick' | 'race' = 'lobby';
+  /** Who stands in each lane (index from the left) for this race; null = empty. */
+  private seats: (Seat | null)[] = [];
+  /** The lane index you start in. */
+  private myLane = 1;
   private track!: Track;
   private path!: TrackPath;
   private camTarget = new THREE.Vector3();
@@ -130,8 +145,8 @@ export class Game {
   private zone: BiomeId | null = null;
   private bot = import.meta.env.DEV && new URLSearchParams(location.search).has('bot');
   private online: Online | null = null;
-  private remoteChar: string | null = null;
-  private remote: Remote | null = null;
+  /** Other players' runners (and, on a guest, the host's bots), by id. */
+  private remotes = new Map<string, Remote>();
   /** The player is over the line and was told how many are still out (0 = not told). */
   private waitTold = 0;
   /** Menu: choosing between a new room and typing in a friend's code. */
@@ -167,7 +182,14 @@ export class Game {
     this.scene.fog = new THREE.Fog(0xffffff, 45, VIEW_AHEAD * 0.92);
 
     this.input = new Input(container);
+    // A tap uses the item at once if there is one to use (or one about to land).
+    this.input.tapUses = () => {
+      const p = this.player;
+      return !!p.item && p.launched && !p.finished && p.itemRoll < PLAYER.inputBuffer;
+    };
     this.hud = new Hud(container);
+    this.hud.onDash = () => this.input.press('dash');
+    this.hud.onUse = () => this.input.press('item');
     this.scene.add(this.debris.mesh, this.juice.root, this.playerBubble.mesh, this.playerRocket.root);
     addEventListener('keydown', (e) => this.menuKey(e));
 
@@ -264,7 +286,7 @@ export class Game {
     this.env.snapLook(0);
     this.scene.add(this.env.root);
     this.player = new Player();
-    const lane = LANES[myLaneIndex(this.online?.connected && this.online.role === 'guest')];
+    const lane = LANES[Math.min(this.myLane, LANE_COUNT - 1)];
     this.player.startSlot(laneX(lane), lane);
     this.t = 0;
     this.zone = null;
@@ -282,6 +304,7 @@ export class Game {
     sound.setMusic('menu');
     this.quietBeds();
     this.input.enabled = false;
+    this.myLane = laneOrder(this.laneCount)[0];
     this.reset(1234);
     this.setPlayerView(this.selected);
     this.playerView!.play('idle');
@@ -299,6 +322,8 @@ export class Game {
       },
     });
     this.spin = this.spinVel = 0;
+    if (this.isHost) this.stage = 'lobby';
+    this.shareRoom();
     this.updateLobby();
   }
 
@@ -308,110 +333,205 @@ export class Game {
   }
 
   // ── Online ──────────────────────────────────────────────────────────
+  /** My id on the line: my id in the room online, or the solo one. */
+  private get myId() {
+    return this.online?.me ?? SOLO_ID;
+  }
+
+  /** Solo, or the host online: decides the line-up and runs the bots. */
+  private get isHost() {
+    return !this.online || this.online.role === 'host';
+  }
+
+  /** In a room with other players (a host with someone in, or a guest let in). */
+  private get inRoom() {
+    const o = this.online;
+    return !!o?.connected && (o.role === 'guest' || o.peers.length > 0);
+  }
+
+  /** Racing other players over the network on the shared clock. */
+  private get netRace() {
+    return !!this.online && this.startAt !== null && [...this.remotes.values()].some((r) => !r.bot);
+  }
+
+  private member(id: string) {
+    return this.members.find((m) => m.id === id);
+  }
+
+  /** A character id from the network, or the first one if we don't have it. */
+  private defOf(id: string) {
+    return this.chars.find((c) => c.id === id) ?? this.chars[0];
+  }
+
   private connect(online: Online) {
     this.online?.close();
     this.online = online;
-    this.remoteChar = null;
+    this.members = [{ id: online.me, c: this.selected }];
+    this.stage = 'lobby';
     online.onStatus = () => {
-      if (online.connected) online.send({ t: 'char', id: this.selected });
-      if (online.status === 'closed' && this.state !== 'menu') this.hud.flash('เพื่อนออกจากห้องแล้ว');
+      if (online.connected && online.role === 'guest') online.send({ t: 'char', id: this.selected });
+      if (online.status === 'closed') {
+        for (const r of this.remotes.values()) r.gone = true;
+        if (this.state !== 'menu') this.hud.flash('เจ้าห้องออกจากห้องแล้ว');
+      }
       this.updateLobby();
     };
-    online.onMessage = (m) => this.onNet(m);
+    online.onPeers = () => this.onPeers();
+    online.onMessage = (m, from) => this.onNet(m, from);
     this.updateLobby();
   }
 
   private leaveOnline() {
     this.online?.close();
     this.online = null;
-    this.remoteChar = null;
+    this.members = [];
+    this.stage = 'lobby';
     history.replaceState(null, '', location.pathname);
     this.updateLobby();
   }
 
-  private onNet(m: NetMsg) {
+  /** Host: someone came into the room or left it. */
+  private onPeers() {
+    const o = this.online!;
+    const had = this.members.length;
+    this.members = [this.members[0], ...o.peers.map((id) => this.member(id) ?? { id, c: this.chars[0].id })];
+    for (const [id, r] of this.remotes) if (!r.bot && !o.peers.includes(id)) r.gone = true;
+    // Everyone needs a lane: a fuller room widens the track.
+    if (this.members.length > this.laneCount) this.laneCount = this.members.length;
+    if (this.state !== 'menu') this.hud.flash(this.members.length > had ? 'มีเพื่อนเข้าห้อง' : 'มีเพื่อนออกจากห้อง', this.members.length > had ? 'good' : 'bad');
+    if (this.state === 'pick') this.reseat();
+    else this.shareRoom();
+    this.updateLobby();
+  }
+
+  /** Host: tell everyone who's in, and the line-up in the runner select. */
+  private shareRoom() {
+    const o = this.online;
+    if (!o?.connected || o.role !== 'host') return;
+    o.send({ t: 'room', ps: this.members, stage: this.stage, seed: this.fieldSeed, rules: this.rules(), seats: this.seats });
+  }
+
+  private rules(): NetRules & { map: MapId } {
+    return { map: this.map, lanes: this.laneCount, items: this.itemsOn, bots: this.botCount };
+  }
+
+  private onNet(m: NetMsg, from: string) {
+    const o = this.online!;
+    const host = o.role === 'host';
+    const racing = this.state === 'race' || this.state === 'done';
     switch (m.t) {
-      case 'char': {
-        this.remoteChar = this.chars.some((c) => c.id === m.id) ? m.id : this.chars[0].id;
-        if (this.state === 'menu') this.updateLobby();
-        // In the room: their runner changes on the line.
-        const r = this.rivals.find((e) => e.sim instanceof Remote);
-        if (this.state === 'pick' && r && r.def.id !== this.remoteChar) {
-          this.recast(r, this.def(this.remoteChar));
-          this.hud.setTaken(this.taken());
-          this.pickTags();
-        }
+      case 'room': {
+        if (host || from !== o.hostId) break;
+        this.members = m.ps;
+        this.takeRules(m.rules);
+        this.stage = m.stage;
+        const seated = m.seats.some((s) => s?.id === this.myId);
+        if (m.stage === 'pick' && seated) {
+          this.seats = m.seats;
+          if (this.state !== 'pick' || this.layoutKey(m.seed) !== this.builtKey) this.openPick(m.seed, true);
+          else this.recastAll();
+          this.updateReady();
+        } else if (this.state === 'pick') this.showMenu();
+        this.updateLobby();
         break;
       }
-      case 'pick':
-        if (this.online?.role === 'guest') {
-          this.takeRules(m);
-          this.openPick(m.seed);
-        }
+      case 'char': {
+        const who = host && this.member(from);
+        if (!who) break;
+        const was = who.c;
+        who.c = this.defOf(m.id).id;
+        if (this.state === 'pick') {
+          this.swapBot(who.c, was);
+          this.reseat();
+        } else this.shareRoom();
+        this.updateLobby();
         break;
-      case 'rules':
-        // The host changed the race in the room: rebuild the line to match.
-        if (this.online?.role === 'guest' && this.state === 'pick') {
-          this.takeRules(m);
-          this.openPick(this.fieldSeed);
-        }
-        break;
-      case 'ready':
-        this.readyFriend = true;
+      }
+      case 'ready': {
+        const who = host && this.member(from);
+        if (!who) break;
+        who.r = m.on;
+        this.shareRoom();
         this.updateReady();
         this.maybeGo();
         break;
+      }
       case 'start':
-        if (this.online?.role === 'guest') {
-          this.takeRules(m);
-          if (this.state === 'pick' && this.fieldSeed === m.seed) this.beginCountdown(m.at);
-          else this.startRace(m.seed, m.at);
-        }
+        if (!host && from === o.hostId && this.state === 'pick' && this.fieldSeed === m.seed) this.beginCountdown(m.at);
         break;
       case 'again':
-        if (this.online?.role === 'host' && this.state === 'results') this.onStartPressed();
+        if (host && this.state === 'results') this.onStartPressed();
         break;
-      case 's':
-        this.remote?.receive(m.d, m.x, m.y, m.v, this.sinceSent(m.v, m.w));
-        if (m.f !== undefined && this.remote && !this.remote.finished) this.remote.finish(m.f);
+      case 's': {
+        const r = this.remotes.get(from);
+        if (!r || r.bot) break;
+        r.receive(m.d, m.x, m.y, m.v, this.sinceSent(m.v, m.w));
+        if (m.f !== undefined && !r.finished) r.finish(m.f);
+        break;
+      }
+      case 'bs':
+        if (from !== o.hostId) break;
+        for (const b of m.a) {
+          const r = this.remotes.get(b.i);
+          if (!r?.bot) continue;
+          r.receive(b.d, b.x, b.y, b.v, this.sinceSent(b.v, m.w));
+          if (b.f !== undefined && !r.finished) r.finish(b.f);
+          r.shield = !!b.sh;
+          r.rocket = !!b.rk;
+          r.item = b.k ?? null;
+        }
         break;
       case 'm':
-        this.remote?.move(m.m);
+        this.remotes.get(m.id ?? from)?.move(m.m);
         break;
       case 'fin':
-        this.remote?.finish(m.time);
+        this.remotes.get(m.id ?? from)?.finish(m.time);
         break;
       case 'ink':
-        if (this.state === 'race') this.player.ink();
+        if (!racing) break;
+        if (m.hit.includes(this.myId) && this.state === 'race') this.player.ink();
+        // Host: a player splattered our bots.
+        for (const r of this.rivals) {
+          if (!(r.sim instanceof Rival) || !m.hit.includes(r.id)) continue;
+          r.sim.ink();
+          this.debris.burst(r.sim.x, r.sim.y + 1.6, r.sim.d, INK_COLORS, 14, 0.8, r.sim.speed * 0.6);
+        }
         break;
-      case 'sh':
-        if (this.remote) this.remote.shield = m.on;
+      case 'sh': {
+        const r = this.remotes.get(from);
+        if (r) r.shield = m.on;
         break;
-      case 'rk':
-        if (this.remote) this.remote.rocket = m.on;
+      }
+      case 'rk': {
+        const r = this.remotes.get(from);
+        if (r) r.rocket = m.on;
         break;
-      case 'it':
-        if (this.remote) this.remote.item = m.k;
+      }
+      case 'it': {
+        const r = this.remotes.get(from);
+        if (r) r.item = m.k;
         break;
+      }
       case 'ob': {
-        const o = this.track?.obstacles.find((ob) => ob.id === m.id);
-        if (o && !o.hit && (this.state === 'race' || this.state === 'done')) {
-          o.hit = true;
-          this.smashView(o, this.remote?.x, this.remote?.speed);
+        const ob = this.track?.obstacles.find((x) => x.id === m.id);
+        const by = this.remotes.get(m.by ?? from);
+        if (ob && !ob.hit && racing) {
+          ob.hit = true;
+          this.smashView(ob, by?.x, by?.speed);
         }
         break;
       }
     }
   }
 
-  /** "Start" on the home screen: into the runner select (online, the host takes the friend along). */
+  /** "Start" on the home screen: into the runner select (online, the host takes the room along). */
   private onStartPressed() {
-    if (!this.online) { this.joining = false; sound.click(); this.openPick(); }
-    else if (this.online.role === 'host' && this.online.connected) {
+    if (!this.online) { this.joining = false; sound.click(); this.seats = []; this.openPick(); }
+    else if (this.online.role === 'host' && this.inRoom) {
       sound.click();
-      const seed = (Math.random() * 2 ** 31) | 0;
-      this.online.send({ t: 'pick', seed, map: this.map, lanes: this.laneCount, items: this.itemsOn });
-      this.openPick(seed);
+      for (const m of this.members) m.r = false;
+      this.seats = [];
+      this.openPick();
     }
   }
 
@@ -423,37 +543,45 @@ export class Game {
       else this.hud.setLobby(null);
       return;
     }
-    const friend = this.remoteChar ? this.def(this.remoteChar).name : '…';
     const code = `<b class="code">${o.code.toUpperCase()}</b>`;
+    const count = `👥 ${this.members.length}/${ROOM_MAX}`;
+    const others = this.members.filter((m) => m.id !== o.me).map((m) => this.defOf(m.c).name).join(', ');
     // One compact line: what's going on on the left, a way out (✕) on the right.
     const line = (status: string, extra = '') =>
       `<div class="lob-row"><div class="lob-text">${status}</div>${extra}<button class="lob-x" data-act="leave" aria-label="ออกจากห้อง">✕</button></div>`;
+    const share = '<button class="lob-share" data-act="share">📋 แชร์</button>';
     let html: string;
     let start: string;
     let ready = false;
     let actions: Record<string, () => void> = { leave: () => this.leaveOnline() };
     if (o.status === 'error' || o.status === 'closed') {
-      html = line(`<span class="err">${o.status === 'error' ? o.error : 'เพื่อนออกจากห้องแล้ว'}</span>`);
+      html = line(`<span class="err">${o.status === 'error' ? o.error : 'เจ้าห้องออกจากห้องแล้ว'}</span>`);
       start = 'กด ✕ เพื่อเล่นคนเดียว';
     } else if (o.role === 'host' && !o.connected) {
-      html = line(`<span>ห้อง ${code}</span><small>ส่งรหัสหรือลิงก์ให้เพื่อน</small>`, '<button class="lob-share" data-act="share">📋 แชร์</button>');
-      actions = { ...actions, share: () => this.shareLink(o) };
-      start = 'รอเพื่อนเข้าห้อง…';
+      html = line(`<span>กำลังเปิดห้อง ${code}…</span>`);
+      start = 'กำลังเชื่อมต่อ…';
     } else if (o.role === 'host') {
-      html = line(`<span class="ok">✓ เพื่อนเข้าห้องแล้ว</span><small>เพื่อนเลือก <b>${friend}</b></small>`);
-      start = 'เริ่มแข่ง!';
-      ready = true;
+      actions = { ...actions, share: () => this.shareLink(o) };
+      const left = ROOM_MAX - this.members.length;
+      html = o.peers.length
+        ? line(`<span class="ok">ห้อง ${code} · ${count}</span><small>${others}${left > 0 ? ` · เข้าได้อีก ${left}` : ' · เต็มแล้ว'}</small>`, share)
+        : line(`<span>ห้อง ${code} · ${count}</span><small>ส่งรหัสหรือลิงก์ให้เพื่อน (สูงสุด ${ROOM_MAX} คน)</small>`, share);
+      start = o.peers.length ? 'เริ่มแข่ง!' : 'รอเพื่อนเข้าห้อง…';
+      ready = o.peers.length > 0;
     } else if (!o.connected) {
       html = line(`<span>กำลังเข้าห้อง ${code}…</span>`);
       start = 'กำลังเชื่อมต่อ…';
+    } else if (this.stage !== 'lobby') {
+      html = line(`<span class="ok">✓ เข้าห้อง ${code} แล้ว · ${count}</span><small>เพื่อนกำลังแข่งอยู่ รอรอบหน้า</small>`);
+      start = 'รอรอบถัดไป…';
     } else {
-      html = line(`<span class="ok">✓ เข้าห้อง ${code} แล้ว</span><small>เจ้าห้องเลือก <b>${friend}</b></small>`);
+      html = line(`<span class="ok">✓ เข้าห้อง ${code} แล้ว · ${count}</span><small>${others}</small>`);
       start = 'รอเจ้าห้องกดเริ่ม…';
     }
     this.hud.setLobby({ html, start, ready, guest: o.role === 'guest', actions });
   }
 
-  /** Play with a friend: open a new room, or type in the code of theirs. */
+  /** Play with friends: open a new room, or type in the code of theirs. */
   private showJoin(error = '', typed = '') {
     const html = `<div class="lob-row"><button class="host-btn" data-act="host">🏠 สร้างห้อง</button><button class="lob-x" data-act="cancel" aria-label="ยกเลิก">✕</button></div>
       <div class="join-row"><input class="room-code" maxlength="40" placeholder="หรือกรอกรหัสห้องเพื่อน" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button class="join-btn" data-act="join">เข้า</button></div>
@@ -502,19 +630,23 @@ export class Game {
   }
 
   // ── Runner select ───────────────────────────────────────────────────
-  /** Everyone onto the line, then the room: pick a runner and press ready. */
-  private openPick(seed = (Math.random() * 2 ** 31) | 0) {
+  /**
+   * Everyone onto the line, then the room: pick a runner and press ready.
+   * @param keepSeats use the line-up already in `seats` (a guest's from the host, or the host's just worked out)
+   */
+  private openPick(seed = (Math.random() * 2 ** 31) | 0, keepSeats = false) {
     this.fieldSeed = seed;
+    if (!this.online) this.members = [{ id: SOLO_ID, c: this.selected }];
+    if (this.isHost && !keepSeats) this.seats = this.computeSeats(seed);
     this.setupField(seed);
     this.state = 'pick';
-    this.readyMe = this.readyFriend = false;
+    if (this.isHost) this.stage = 'pick';
     this.input.enabled = false;
     sound.setMusic('menu');
     for (const v of [this.playerView!, ...this.rivals.map((r) => r.view)]) v.play('idle');
-    const host = !this.online || this.online.role === 'host';
     this.hud.showPick({
       chars: this.chars, selected: this.selected, taken: this.taken(),
-      rules: { map: this.map, lanes: this.laneCount, items: this.itemsOn }, canEdit: host,
+      rules: this.rules(), canEdit: this.isHost, players: this.online ? this.members.length : 1,
       onRules: (r) => this.setRules(r),
       onPick: (id) => this.pickRunner(id),
       onReady: () => this.onReady(),
@@ -525,40 +657,99 @@ export class Game {
     });
     this.pickTags();
     this.updateReady();
+    this.shareRoom();
   }
 
-  /** Race settings changed in the room (solo, or the host online): save, tell the friend, rebuild the line. */
-  private setRules(r: { map: MapId; lanes: number; items: ItemKind[] }) {
-    if (r.map === this.map && r.lanes === this.laneCount && r.items.join() === this.itemsOn.join()) return;
+  /**
+   * Who runs in which lane: the players from the middle lane outwards (the
+   * host first), then as many bots as wanted in the lanes left over, each on
+   * a character nobody else has (a bot keeps the one it had if it still can).
+   */
+  private computeSeats(seed: number): (Seat | null)[] {
+    const n = this.laneCount;
+    const order = laneOrder(n);
+    const humans = this.members.slice(0, n);
+    const seats: (Seat | null)[] = Array(n).fill(null);
+    humans.forEach((m, i) => { seats[order[i]] = { id: m.id, c: m.c }; });
+    const used = new Set(humans.map((m) => m.c));
+    const had = this.seats.filter((s): s is Seat => !!s && isBot(s.id)).map((s) => s.c);
+    const pool = new Rng(seed ^ 0x5bd1e995).shuffle(this.chars.map((c) => c.id));
+    const bots = Math.max(0, Math.min(this.botCount, n - humans.length));
+    for (let k = 0; k < bots; k++) {
+      const c = [had[k], ...pool].find((id) => id && !used.has(id)) ?? this.chars[k % this.chars.length].id;
+      used.add(c);
+      seats[order[humans.length + k]] = { id: `~${k}`, c };
+    }
+    return seats;
+  }
+
+  /** What the line on screen was built from (a change means building it again). */
+  private builtKey = '';
+  private layoutKey(seed = this.fieldSeed) {
+    return `${seed}|${this.map}|${this.laneCount}|${this.itemsOn.join()}|${this.seats.map((s) => s?.id ?? '').join()}`;
+  }
+
+  /** Host (and solo): work the line-up out again; rebuild the line if who stands where changed, else just change characters. */
+  private reseat() {
+    this.seats = this.computeSeats(this.fieldSeed);
+    if (this.layoutKey() !== this.builtKey) this.openPick(this.fieldSeed, true);
+    else {
+      this.recastAll();
+      this.updateReady();
+      this.shareRoom();
+    }
+  }
+
+  /** A bot on the character a player just took gets the one they left. */
+  private swapBot(taken: string, freed: string) {
+    const bot = this.seats.find((s) => s && isBot(s.id) && s.c === taken);
+    if (bot) bot.c = freed;
+  }
+
+  /** Runners on the line take the characters in `seats`. */
+  private recastAll() {
+    this.seats.forEach((s) => {
+      const r = s && this.rivals.find((e) => e.id === s.id);
+      if (r && r.def.id !== s.c) this.recast(r, this.defOf(s.c));
+    });
+    this.hud.setTaken(this.taken());
+    this.pickTags();
+  }
+
+  /** Race settings changed in the room (solo, or the host online): save, tell everyone, rebuild the line. */
+  private setRules(r: Rules) {
+    if (r.map === this.map && r.lanes === this.laneCount && r.items.join() === this.itemsOn.join() && r.bots === this.botCount) return;
     this.map = r.map;
     this.laneCount = r.lanes;
     this.itemsOn = r.items;
+    this.botCount = r.bots;
     profile.lanes = r.lanes;
     profile.items = r.items;
+    profile.bots = r.bots;
     saveProfile();
     try { localStorage.setItem('map', r.map); } catch { /* private mode */ }
-    if (this.online?.connected) this.online.send({ t: 'rules', map: r.map, lanes: r.lanes, items: r.items });
     this.openPick(this.fieldSeed);
   }
 
-  /** The host's settings, as sent with a room, a change or the start. */
-  private takeRules(m: { map?: string; lanes?: number; items?: ItemKind[] }) {
+  /** The host's settings, as sent with the room. */
+  private takeRules(m: Partial<NetRules>) {
     if (isMapId(m.map)) this.map = m.map;
     if (m.lanes) this.laneCount = m.lanes;
     if (m.items) this.itemsOn = ITEM_KINDS.filter((k) => m.items!.includes(k));
+    if (m.bots !== undefined) this.botCount = m.bots;
   }
 
   /** Characters on the line other than yours: who's running them. */
   private taken() {
     const out: Record<string, string> = {};
-    for (const r of this.rivals) out[r.def.id] = r.sim instanceof Remote ? 'เพื่อน' : 'บอท';
+    for (const r of this.rivals) out[r.def.id] = isBot(r.id) ? 'บอท' : 'เพื่อน';
     return out;
   }
 
   /** Name tags in lane order. */
   private pickTags() {
     const all = [{ x: this.player.x, name: this.def(this.selected).name, me: true, friend: false },
-      ...this.rivals.map((r) => ({ x: r.sim.x, name: r.def.name, me: false, friend: r.sim instanceof Remote }))];
+      ...this.rivals.map((r) => ({ x: r.sim.x, name: r.def.name, me: false, friend: !isBot(r.id) }))];
     this.hud.setPickTags(all.map((t) => ({ ...t, lane: LANE_COUNT - laneIndex(nearestLane(t.x)) })));
   }
 
@@ -572,11 +763,14 @@ export class Game {
     this.playerView!.play('victory');
     this.menuCheer = 1.1;
     this.player.stats = this.def(id).stats ?? BASE_STATS;
-    const bot = this.rivals.find((r) => r.def.id === id && r.sim instanceof Rival);
-    if (bot) this.recast(bot, this.def(was));
-    this.online?.send({ t: 'char', id });
-    this.hud.setTaken(this.taken());
-    this.pickTags();
+    const me = this.member(this.myId);
+    if (me) me.c = id;
+    const mine = this.seats.find((s) => s?.id === this.myId);
+    if (mine) mine.c = id;
+    if (this.isHost) {
+      this.swapBot(id, was);
+      this.reseat();
+    } else this.online?.send({ t: 'char', id });
   }
 
   /** Put a different character on a runner already on the line. */
@@ -592,71 +786,84 @@ export class Game {
 
   private onReady() {
     const o = this.online;
-    if (!o?.connected) { this.beginCountdown(); return; }
-    this.readyMe = true;
-    o.send({ t: 'ready' });
+    if (!this.inRoom) { this.beginCountdown(); return; }
+    const me = this.member(this.myId);
+    if (me) me.r = true;
+    if (o!.role === 'guest') o!.send({ t: 'ready', on: true });
+    else this.shareRoom();
     this.updateReady();
     this.maybeGo();
   }
 
-  /** Host: both ready, so the race starts for both on the shared clock. */
+  /** The players standing on the line. */
+  private seatedPlayers() {
+    return this.seats.filter((s): s is Seat => !!s && !isBot(s.id));
+  }
+
+  /** Host: everyone on the line is ready, so the race starts for all on the shared clock. */
   private maybeGo() {
     const o = this.online;
-    if (!o?.connected || o.role !== 'host' || !this.readyMe || !this.readyFriend || this.state !== 'pick') return;
+    if (!o?.connected || o.role !== 'host' || this.state !== 'pick') return;
+    if (!this.seatedPlayers().every((s) => this.member(s.id)?.r)) return;
     const at = o.now() + START_LEAD * 1000;
-    o.send({ t: 'start', seed: this.fieldSeed, map: this.map, lanes: this.laneCount, items: this.itemsOn, at });
+    this.stage = 'race';
+    o.send({ t: 'start', seed: this.fieldSeed, at });
+    this.shareRoom();
     this.beginCountdown(at);
   }
 
   private updateReady() {
     if (this.state !== 'pick') return;
-    const o = this.online;
-    if (!o?.connected) this.hud.setReady('พร้อม!', 'แตะเพื่อเริ่มนับถอยหลัง', true);
-    else if (!this.readyMe) this.hud.setReady('พร้อม!', this.readyFriend ? 'เพื่อนพร้อมแล้ว · รอคุณอยู่' : 'กดพร้อมทั้งสองคนแล้วเริ่มเลย', true);
-    else this.hud.setReady('พร้อมแล้ว ✓', 'รอเพื่อนกดพร้อม…', false, true);
+    if (!this.inRoom) { this.hud.setReady('พร้อม!', 'แตะเพื่อเริ่มนับถอยหลัง', true); return; }
+    const seated = this.seatedPlayers();
+    const n = seated.filter((s) => this.member(s.id)?.r).length;
+    if (!this.member(this.myId)?.r) this.hud.setReady('พร้อม!', `พร้อมแล้ว ${n}/${seated.length} คน · กดพร้อมครบแล้วเริ่มเลย`, true);
+    else this.hud.setReady('พร้อมแล้ว ✓', `รอเพื่อนกดพร้อม… (${n}/${seated.length})`, false, true);
   }
 
   /** Track, scenery and every runner standing on their block (no countdown yet). */
   private setupField(seed: number) {
-    const online = this.online?.connected ? this.online : null;
+    this.myLane = Math.max(0, this.seats.findIndex((s) => s?.id === this.myId));
     this.reset(seed);
     this.setPlayerView(this.selected);
     this.player.stats = this.def(this.selected).stats ?? BASE_STATS;
-    this.remote = null;
+    this.remotes.clear();
     this.startPath = [];
-    this.tapItemAt = -1;
-    const mine = myLaneIndex(online?.role === 'guest');
-    if (online) {
-      // Host in the middle lane, the guest beside them.
-      const theirs = LANES[myLaneIndex(online.role === 'host')];
-      const def = this.def(this.remoteChar ?? this.chars[0].id);
-      this.remote = new Remote(laneX(theirs));
-      this.remote.strength = (def.stats ?? BASE_STATS).strength;
-      this.addRunner(this.remote, def);
-    } else {
-      // One bot in every other lane, each on a different character.
-      const rng = new Rng(seed ^ 0x5bd1e995);
-      const pool = rng.shuffle(this.chars.filter((c) => c.id !== this.selected));
-      const lanes = LANES.filter((_, i) => i !== mine);
-      lanes.slice(0, pool.length).forEach((lane, i) => {
-        this.addRunner(new Rival(seed + i * 101, SKILLS[i % SKILLS.length], laneX(lane), lane, pool[i].stats ?? BASE_STATS), pool[i]);
-      });
-    }
+    // Bots run here solo and on the host; a guest sees the host's, like any other player.
+    this.seats.forEach((s, i) => {
+      if (!s || s.id === this.myId || i >= LANES.length) return;
+      const def = this.defOf(s.c);
+      const lane = LANES[i];
+      if (isBot(s.id) && this.isHost) {
+        const k = Number(s.id.slice(1)) || 0;
+        this.addRunner(s.id, new Rival(seed + k * 101, SKILLS[k % SKILLS.length], laneX(lane), lane, def.stats ?? BASE_STATS), def);
+      } else {
+        const r = new Remote(s.id, laneX(lane), isBot(s.id));
+        r.strength = (def.stats ?? BASE_STATS).strength;
+        this.remotes.set(s.id, r);
+        this.addRunner(s.id, r, def);
+      }
+    });
+    this.builtKey = this.layoutKey(seed);
   }
 
-  private addRunner(sim: Rival | Remote, def: CharacterDef) {
+  private addRunner(id: string, sim: Rival | Remote, def: CharacterDef) {
     // Rivals use a cheap blob shadow: five shadow-casting characters cost ~75k tris.
     const view = new CharacterView(def, { castShadow: false });
     const bubble = new Bubble(), rocket = new RocketPack(), tag = new ItemTag();
     this.scene.add(view.root, bubble.mesh, rocket.root, tag.sprite);
-    this.rivals.push({ sim, view, def, lock: 0, moveIndex: 0, bubble, shield: false, rocket, tag });
+    this.rivals.push({ id, sim, view, def, lock: 0, moveIndex: 0, sent: 0, bubble, shield: false, rocket, tag });
   }
 
-  /** Straight to the count (dev ?autostart, or a guest who missed the room). */
-  private startRace(seed?: number, netAt?: number) {
+  /** Straight to the count (dev ?autostart). */
+  private startRace(seed?: number) {
     const params = new URLSearchParams(location.search);
-    this.setupField(seed ?? (Number(params.get('seed')) || (Math.random() * 2 ** 31) | 0));
-    this.beginCountdown(netAt);
+    const s = seed ?? (Number(params.get('seed')) || (Math.random() * 2 ** 31) | 0);
+    this.fieldSeed = s;
+    if (!this.online) this.members = [{ id: SOLO_ID, c: this.selected }];
+    this.seats = this.computeSeats(s);
+    this.setupField(s);
+    this.beginCountdown();
   }
 
   /** @param netAt online: when the start sequence begins, on the host's clock (ms) */
@@ -700,7 +907,7 @@ export class Game {
   private racers(): Racer[] {
     return [
       { name: this.def(this.selected).name, d: this.player.d, isPlayer: true, finished: this.player.finished, finishTime: this.player.finishTime, color: COLORS[0] },
-      ...this.rivals.map((r, i) => ({ name: r.sim instanceof Remote ? `เพื่อน · ${r.def.name}` : r.def.name, d: r.sim.d, isPlayer: false, finished: r.sim.finished, finishTime: r.sim.finishTime, color: COLORS[i + 1] })),
+      ...this.rivals.map((r, i) => ({ name: isBot(r.id) ? r.def.name : `เพื่อน · ${r.def.name}`, d: r.sim.d, isPlayer: false, finished: r.sim.finished, finishTime: r.sim.finishTime, color: COLORS[i + 1] })),
     ];
   }
 
@@ -745,29 +952,6 @@ export class Game {
   /** Online: the player's distance at each tick since the gun (for `sinceSent`). */
   private startPath: number[] = [];
 
-  /** A single tap that may yet become a dash: the race time it turns into using the item. */
-  private tapItemAt = -1;
-
-  /**
-   * A tap uses the held item, unless it is the first half of a double-tap dash.
-   * Only when a dash is ready is there anything to tell apart, so only then does
-   * the item wait a moment for a second tap.
-   */
-  private takeTaps(actions: Action[]) {
-    const p = this.player;
-    const out: Action[] = actions.filter((a) => a !== 'tap');
-    if (out.includes('dash')) this.tapItemAt = -1;
-    else if (actions.includes('tap')) {
-      if (p.dashReady) this.tapItemAt = this.t + DOUBLE_GAP / 1000;
-      else out.push('item');
-    }
-    if (this.tapItemAt >= 0 && this.t >= this.tapItemAt) {
-      this.tapItemAt = -1;
-      out.push('item');
-    }
-    return out;
-  }
-
   /** Online: the shared-clock moment (ms) the game's race time stands for (a frame catching up runs behind now). */
   private raceWall() {
     return this.startAt !== null ? this.gunWall + this.t * 1000 : this.online!.now();
@@ -776,8 +960,8 @@ export class Game {
   /** Online racing: shared-clock time since the gun minus the game's own, in seconds. */
   private raceLag() {
     if (this.state !== 'race' && this.state !== 'done') return null;
-    if (!this.remote || !this.online || this.startAt === null) return null;
-    return (this.online.now() - this.gunWall) / 1000 - this.t;
+    if (!this.netRace) return null;
+    return (this.online!.now() - this.gunWall) / 1000 - this.t;
   }
 
   private step(dt: number) {
@@ -824,7 +1008,7 @@ export class Game {
 
     this.t += dt;
     const p = this.player;
-    const actions = this.takeTaps(this.input.drain());
+    const actions = this.input.drain();
     if (!p.launched) {
       // Same start for everyone; lane changes pressed on the launch frame still count.
       if (this.gunT >= LAUNCH_AT) {
@@ -837,17 +1021,31 @@ export class Game {
     }
     if (this.bot && !p.finished && p.launched) actions.push(...botActions(p, this.track, this.t), ...(p.dashReady ? ['dash' as const] : []), ...(p.itemReady ? ['item' as const] : []));
     p.step(dt, this.t, actions, this.track);
-    if (this.remote && this.gunT < LAUNCH_AT + START_MIRROR) this.startPath.push(p.d);
+    const net = this.netRace && this.online!.connected;
+    if (net && this.gunT < LAUNCH_AT + START_MIRROR) this.startPath.push(p.d);
     if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.finishClock());
     for (const e of p.events) this.onPlayerEvent(e);
     p.events.length = 0;
 
-    if (this.online?.connected && this.remote && ++this.sendTick % 3 === 0) {
+    if (net && ++this.sendTick % 3 === 0) {
       // The finish time rides along on every packet too: a lone 'fin' lost on a flaky
-      // connection would leave the friend waiting for us forever.
-      this.online.send({ t: 's', d: +p.d.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), v: +p.speed.toFixed(2), w: Math.round(this.raceWall()),
+      // connection would leave the others waiting for us forever.
+      const w = Math.round(this.raceWall());
+      this.online!.send({ t: 's', d: +p.d.toFixed(2), x: +p.x.toFixed(2), y: +p.y.toFixed(2), v: +p.speed.toFixed(2), w,
         ...(p.finished ? { f: p.finishTime } : {}) });
+      // The host runs the bots for everyone.
+      const bots: BotState[] = [];
+      for (const r of this.rivals) {
+        const s = r.sim;
+        if (!(s instanceof Rival)) continue;
+        bots.push({ i: r.id, d: +s.d.toFixed(2), x: +s.x.toFixed(2), y: +s.y.toFixed(2), v: +s.speed.toFixed(2),
+          ...(s.finished ? { f: s.finishTime } : {}), ...(s.shield ? { sh: 1 as const } : {}), ...(s.flyT > 0 ? { rk: 1 as const } : {}), ...(s.item ? { k: s.item } : {}) });
+      }
+      if (bots.length) this.online!.send({ t: 'bs', w, a: bots });
     }
+
+    // Bots keep near the nearest player (online, whichever one that is).
+    const people = [p.d, ...[...this.remotes.values()].filter((r) => !r.bot && !r.gone).map((r) => r.d)];
 
     for (const r of this.rivals) {
       if (r.sim instanceof Remote) {
@@ -860,11 +1058,21 @@ export class Game {
         r.sim.step(dt);
         continue;
       }
-      r.sim.step(dt, this.track, p.d, this.traffic(r.sim));
-      if (!r.sim.finished && r.sim.d >= RACE_LENGTH) r.sim.finish(this.t);
-      for (const item of r.sim.fired) if (item === 'ink') this.splatAhead(r.sim);
-      r.sim.fired.length = 0;
-      this.rivalSmash(r.sim);
+      const s = r.sim;
+      const near = people.reduce((a, b) => (Math.abs(b - s.d) < Math.abs(a - s.d) ? b : a));
+      s.step(dt, this.track, near, this.traffic(s));
+      if (!s.finished && s.d >= RACE_LENGTH) {
+        s.finish(this.finishClock());
+        if (net) this.online!.send({ t: 'fin', time: s.finishTime, id: r.id });
+      }
+      for (const item of s.fired) if (item === 'ink') this.splatAhead(s);
+      s.fired.length = 0;
+      this.rivalSmash(s, r.id);
+      // Everyone else sees the bot's moves as it makes them.
+      for (; r.sent < s.moves.length; r.sent++) {
+        const m = s.moves[r.sent];
+        if (net && m !== 'lane') this.online!.send({ t: 'm', m, id: r.id });
+      }
     }
     this.contacts();
     this.collectItems();
@@ -877,8 +1085,8 @@ export class Game {
     }
     if (this.state === 'done') {
       // Nobody's race is cut short: wait until every runner is over the line
-      // (a friend who left the room isn't coming).
-      const waiting = this.rivals.filter((r) => !r.sim.finished && (r.sim instanceof Rival || this.online?.connected)).length;
+      // (someone who left the room isn't coming).
+      const waiting = this.rivals.filter((r) => !r.sim.finished && (r.sim instanceof Rival || (this.online?.connected && !r.sim.gone))).length;
       this.doneT += dt;
       if (waiting) {
         this.settleT = 0;
@@ -939,7 +1147,7 @@ export class Game {
    *  game clock stalls when a device stutters or its tab sleeps, so two players'
    *  game times can put the one who crossed second in first place. */
   private finishClock() {
-    return this.remote && this.online && this.startAt !== null ? (this.online.now() - this.gunWall) / 1000 : this.t;
+    return this.netRace ? (this.online!.now() - this.gunWall) / 1000 : this.t;
   }
 
   /** Finishing place for a finish time (1 = first). */
@@ -1052,7 +1260,7 @@ export class Game {
    * player hits it: a dash ploughs through whatever it touches, a fumble
    * breaks the obstacle in its lane of that row.
    */
-  private rivalSmash(s: Rival) {
+  private rivalSmash(s: Rival, id: string) {
     const row = this.track.rows[s.crashRow];
     if (row && s.d > row.d1 + 1) s.crashRow = -1;
     // A dash or a boost ploughs through whatever it touches.
@@ -1074,15 +1282,16 @@ export class Game {
       if (crash) s.crashRow = -1;
       if (Math.abs(s.d - this.player.d) < 25) sound.smash();
       if (o.d < this.player.d + VIEW_AHEAD) this.smashView(o, s.x, s.speed);
+      if (this.netRace) this.online!.send({ t: 'ob', id: o.id, by: id });
     }
   }
 
-  /** Runners are solid (a friend's Remote has no bump methods, so it is never moved). */
+  /** Runners are solid (someone else's Remote has no bump methods, so it is never moved). */
   private contacts() {
     resolveContacts([this.player, ...this.rivals.map((r) => r.sim)]);
   }
 
-  /** Runners through item boxes (a friend online collects on their own screen). */
+  /** Runners through item boxes (other players collect on their own screens, the host's bots on the host's). */
   /** The player has used an item at least once (stops the how-to hint). */
   private usedItem = false;
 
@@ -1109,31 +1318,34 @@ export class Game {
   private splatAhead(from: Player | Rival) {
     let hits = 0;
     const p = this.player;
+    const far: string[] = [];
     if (from !== p && !p.finished && p.d > from.d) { p.ink(); hits++; }
     for (const r of this.rivals) {
       const s = r.sim;
       if (s === from || s.finished || s.d <= from.d) continue;
       if (s instanceof Rival) s.ink();
-      else if (from === p) this.online?.send({ t: 'ink' }); // the friend splatters their own screen
+      else if (!s.gone) far.push(r.id); // they splatter on their own screen (the host's bots, on the host's)
       else continue;
       hits++;
       this.debris.burst(s.x, s.y + 1.6, s.d, INK_COLORS, 14, 0.8, s.speed * 0.6);
     }
+    if (far.length && this.online?.connected) this.online.send({ t: 'ink', hit: far });
     return hits;
   }
 
   private onPlayerEvent(e: PlayerEvent) {
     const v = this.playerView;
-    if (this.remote && this.online?.connected) {
-      if (e.type === 'finish') this.online.send({ t: 'fin', time: this.player.finishTime });
-      else if (['jump', 'bounce', 'slide', 'stumble', 'fall', 'dash', 'stunned'].includes(e.type)) this.online.send({ t: 'm', m: e.type as NetMove });
-      else if (e.type === 'shoved') this.online.send({ t: 'm', m: 'stunned' }); // the friend sees the stagger
-      else if (e.type === 'item' && e.item === 'shield') this.online.send({ t: 'sh', on: true });
-      else if (e.type === 'shieldEnd') this.online.send({ t: 'sh', on: false });
-      else if (e.type === 'item' && e.item === 'rocket') this.online.send({ t: 'rk', on: true });
-      else if (e.type === 'rocketEnd') this.online.send({ t: 'rk', on: false });
-      if (e.type === 'pickup' || e.type === 'item') this.online.send({ t: 'it', k: this.player.item });
-      if (e.type === 'smash') this.online.send({ t: 'ob', id: e.obstacle.id });
+    if (this.netRace && this.online!.connected) {
+      const o = this.online!;
+      if (e.type === 'finish') o.send({ t: 'fin', time: this.player.finishTime });
+      else if (['jump', 'bounce', 'slide', 'stumble', 'fall', 'dash', 'stunned'].includes(e.type)) o.send({ t: 'm', m: e.type as NetMove });
+      else if (e.type === 'shoved') o.send({ t: 'm', m: 'stunned' }); // the others see the stagger
+      else if (e.type === 'item' && e.item === 'shield') o.send({ t: 'sh', on: true });
+      else if (e.type === 'shieldEnd') o.send({ t: 'sh', on: false });
+      else if (e.type === 'item' && e.item === 'rocket') o.send({ t: 'rk', on: true });
+      else if (e.type === 'rocketEnd') o.send({ t: 'rk', on: false });
+      if (e.type === 'pickup' || e.type === 'item') o.send({ t: 'it', k: this.player.item });
+      if (e.type === 'smash') o.send({ t: 'ob', id: e.obstacle.id });
     }
     switch (e.type) {
       case 'jump':
@@ -1199,7 +1411,7 @@ export class Game {
         break;
       case 'dashReady':
         sound.dashReady();
-        this.hud.flash(desktop ? 'แดชพร้อม! กด Shift' : 'แดชพร้อม! แตะจอ 2 ครั้ง', 'good');
+        this.hud.flash(desktop ? 'แดชพร้อม! กด Shift' : 'แดชพร้อม! กดปุ่ม ⚡', 'good');
         break;
       case 'shoved':
         sound.bump(false);

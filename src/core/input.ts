@@ -1,7 +1,7 @@
 // Swipe + keyboard input, turned into discrete actions the player consumes.
-// A tap anywhere is 'tap' (the game turns it into using the held item) and a
-// double tap is 'dash' (fires when the meter is full); Q is 'item' outright.
-export type Action = 'left' | 'right' | 'jump' | 'slide' | 'dash' | 'item' | 'tap';
+// A tap anywhere uses the held item at once; with nothing to use, a double tap
+// is 'dash'. The HUD's dash and item buttons (and Shift / Q) press them outright.
+export type Action = 'left' | 'right' | 'jump' | 'slide' | 'dash' | 'item';
 
 const KEYS: Record<string, Action> = {
   ArrowLeft: 'left', KeyA: 'left',
@@ -14,7 +14,7 @@ const KEYS: Record<string, Action> = {
 
 const SWIPE_MIN = 24; // px
 const TAP_TIME = 300; // ms a finger may stay down and still be a tap
-export const DOUBLE_GAP = 320; // ms from the first tap's lift to the second touch
+const DOUBLE_GAP = 320; // ms from the first tap's lift to the second touch
 const DOUBLE_SPREAD = 90; // px between the two taps
 
 export class Input {
@@ -24,6 +24,8 @@ export class Input {
   /** The last tap that could open a double tap (lift time and place). */
   private tap: { t: number; x: number; y: number } | null = null;
   enabled = false;
+  /** Whether a tap right now would use an item (then it never waits to become a double tap). */
+  tapUses: () => boolean = () => false;
 
   constructor(target: HTMLElement) {
     addEventListener('keydown', (e) => {
@@ -56,16 +58,21 @@ export class Input {
     target.addEventListener('pointerup', (e) => {
       const s = this.start;
       this.start = null;
-      // A quick touch that didn't swipe is a tap; a second one close behind is a dash.
+      // A quick touch that didn't swipe is a tap: it uses the item straight away.
+      // With nothing to use, a second one close behind is a dash.
       // (A failed swipe then a real one is not a double tap.)
       if (!s || e.pointerId !== s.id || this.fired || e.timeStamp - s.t > TAP_TIME) return;
-      if (s.double) this.push('dash');
-      else {
-        this.push('tap');
-        this.tap = { t: e.timeStamp, x: s.x, y: s.y };
-      }
+      if (this.tapUses()) this.push('item');
+      else if (s.double) this.push('dash');
+      else this.tap = { t: e.timeStamp, x: s.x, y: s.y };
     });
     target.addEventListener('pointercancel', () => { this.start = null; this.tap = null; });
+  }
+
+  /** A HUD button pressed (fires on touch-down, not on release). */
+  press(a: Action) {
+    this.tap = null;
+    this.push(a);
   }
 
   private push(a: Action) {
