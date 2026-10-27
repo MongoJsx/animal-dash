@@ -2,7 +2,7 @@
 // 25 m chunks around the player (one lit + one glowing mesh per chunk), plus
 // the sky, distant skyline, ambient particles and per-zone lighting "look".
 import * as THREE from 'three';
-import { BIOME_LENGTH, RACE_LENGTH, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, laneDividers } from '../config.ts';
+import { BIOME_LENGTH, LANES, RACE_LENGTH, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, laneDividers, laneX } from '../config.ts';
 import { Rng } from '../core/rng.ts';
 import { BIOMES, biomeAt, type BiomeId, type CountryId, type Palette } from '../world/biomes.ts';
 import type { TrackPath } from '../world/path.ts';
@@ -11,24 +11,65 @@ import { Atmosphere } from './atmosphere.ts';
 import { finishArea, startArea, zoneGate } from './landmarks.ts';
 import { DecorInstancer, decorList, type Placement, type Template } from './props.ts';
 import { CHUNK, SCENE_HALF, buildCountryChunk, countryLandmarks } from './scenery.ts';
-import { Shapes, glowMaterial } from './shapes.ts';
+import { BTS_X, mountain, skytrain } from './kit.ts';
+import { Shapes, flatMaterial, glowMaterial, haloMaterial, haloStrength, waterMaterial } from './shapes.ts';
 import { Sky, blendLook, cloneLook, lookOf, type Look } from './sky.ts';
 
 const SMALL_DECOR_RANGE = 90;
+/** Scenery casts shadows from this far behind the runner to this far ahead (the sun's shadow box is ±14 m round a point 8 m ahead). */
+const SHADOW_BEHIND = 10;
+const SHADOW_AHEAD = 26;
+/** Skytrain: cars, speed (m/s, toward the runner) and how often one comes by (s). */
+const TRAIN = { cars: 3, speed: 17, every: 12 };
 
-function ground(s: Shapes, p: Palette, b: BiomeId, z0: number) {
+function ground(s: Shapes, water: Shapes, p: Palette, b: BiomeId, z0: number, rng: Rng) {
   const zc = z0 - CHUNK / 2;
-  s.long(p.ground, 0, -0.1, zc, SCENE_HALF * 2, 0.2, CHUNK);
+  const half = SCENE_HALF;
+  s.long(p.ground, 0, -0.1, zc, half * 2, 0.2, CHUNK);
   s.exact(() => { for (const lx of laneDividers()) s.long(p.groundAlt, lx, 0.005, zc, 0.12, 0.02, CHUNK); });
-  // Paving stripes give a sense of speed.
-  for (let i = 0; i < CHUNK; i += 5) s.box(p.groundAlt, 0, 0.004, z0 - i - 1.25, SCENE_HALF * 2 - 0.4, 0.01, 0.35);
+  const tint = (c: number, k: number) => new THREE.Color(c).multiplyScalar(k).getHex();
+  switch (b) {
+    case 'village':
+      // Cobbles: rows of stones of uneven width, each a shade lighter or darker.
+      for (let d = 0.45; d < CHUNK; d += 0.9) {
+        let x = -half + rng.range(0, 0.4);
+        while (x < half - 0.3) {
+          const w = Math.min(half - 0.15 - x, rng.range(0.7, 1.3));
+          s.box(tint(rng.pick([p.ground, p.groundAlt]), rng.range(0.92, 1.1)), x + w / 2, 0.012, z0 - d, w - 0.1, 0.03, 0.8);
+          x += w;
+        }
+      }
+      // Flowers in the grass verge.
+      for (const side of [-1, 1]) for (let i = 0; i < 8; i++) s.sphere(rng.pick([0xffffff, 0xffd166, 0xef476f, 0xc77dff]), side * rng.range(half + 0.8, half + 3), 0.12, z0 - rng.range(0, CHUNK), 0.12, 0);
+      break;
+    case 'forest':
+      // Packed earth with two worn wheel tracks and tufts of grass along the edges.
+      for (const o of [-1.4, 1.4]) s.long(p.groundAlt, o, 0.004, zc, 0.9, 0.01, CHUNK);
+      for (const side of [-1, 1]) for (let i = 0; i < 14; i++) s.cone(rng.pick([0x588157, 0x3a7d44, 0x6a994e]), side * rng.range(half - 0.3, half + 2.5), 0, z0 - rng.range(0, CHUNK), rng.range(0.12, 0.22), rng.range(0.25, 0.5), 5);
+      for (const side of [-1, 1]) if (rng.chance(0.5)) {
+        const z = z0 - rng.range(3, 22), x = side * rng.range(half + 1.2, half + 3);
+        s.cyl(0xfefae0, x, 0, z, 0.06, 0.25, 6).sphere(0xe63946, x, 0.28, z, 0.18, 1, 0.55);
+      }
+      break;
+    case 'harbor':
+      // Pier planks across the walkway, every other one a little darker.
+      for (let d = 0; d < CHUNK; d += 0.6) s.box(tint(p.ground, Math.floor(d / 0.6) % 2 ? 0.9 : 1.04), 0, 0.006, z0 - d - 0.3, half * 2 - 0.1, 0.012, 0.52);
+      break;
+    case 'snow':
+      s.exact(() => { for (const l of LANES) for (const o of [-0.4, 0.4]) s.long(0xc9d6e8, laneX(l) + o, 0.004, zc, 0.3, 0.01, CHUNK); });
+      for (const side of [-1, 1]) for (let d = 0.8; d < CHUNK; d += 1.6) s.sphere(rng.pick([0xffffff, 0xf2f6fc]), side * (half + 0.55), 0, z0 - d, 0.8, 1, rng.range(0.4, 0.65));
+      break;
+    default:
+      // Paving stripes give a sense of speed.
+      for (let i = 0; i < CHUNK; i += 5) s.box(p.groundAlt, 0, 0.004, z0 - i - 1.25, half * 2 - 0.4, 0.01, 0.35);
+  }
   const curb = b === 'harbor' ? p.a : b === 'candy' ? 0xffffff : p.d;
-  s.long(curb, -SCENE_HALF - 0.2, 0.1, zc, 0.4, 0.4, CHUNK).long(curb, SCENE_HALF + 0.2, 0.1, zc, 0.4, 0.4, CHUNK);
+  if (b !== 'snow') s.long(curb, -half - 0.2, 0.1, zc, 0.4, 0.4, CHUNK).long(curb, half + 0.2, 0.1, zc, 0.4, 0.4, CHUNK);
   const sideY = b === 'harbor' ? -0.6 : -0.12;
-  s.long(p.side, -SCENE_HALF - 30.4, sideY, zc, 60, 0.2, CHUNK).long(p.side, SCENE_HALF + 30.4, sideY, zc, 60, 0.2, CHUNK);
+  (b === 'harbor' ? water : s).long(p.side, -half - 30.4, sideY, zc, 60, 0.2, CHUNK).long(p.side, half + 30.4, sideY, zc, 60, 0.2, CHUNK);
   if (b === 'harbor') {
     // Track is a pier: posts under it, water around.
-    for (const x of [-SCENE_HALF, SCENE_HALF]) for (let i = 2; i < CHUNK; i += 6) s.cyl(p.a, x, -1.2, z0 - i, 0.22, 1.3, 6);
+    for (const x of [-half, half]) for (let i = 2; i < CHUNK; i += 6) s.cyl(p.a, x, -1.2, z0 - i, 0.22, 1.3, 6);
   }
 }
 
@@ -105,9 +146,17 @@ function far(s: Shapes, p: Palette, b: BiomeId, z: number, rng: Rng) {
   for (const side of [-1, 1]) {
     if (!rng.chance(0.6)) continue;
     const x = side * rng.range(26, 40);
-    if (b === 'snow' || b === 'forest') s.cone(b === 'snow' ? 0xf1f5f9 : 0x52796f, x, -0.2, z, rng.range(8, 14), rng.range(10, 20), 6);
-    else if (b === 'harbor') s.box(p.a, x, 2, z, 6, 4, 14).cone(p.d, x, 4, z, 4, 6, 4);
-    else s.sphere(b === 'candy' ? rng.pick([p.a, p.b, 0xffd6ff]) : 0x90be6d, x, -2, z, rng.range(7, 12), 1, 0.6);
+    if (b === 'snow') {
+      // Snowy peaks: rock below, a white cap.
+      const r = rng.range(8, 13), h = rng.range(12, 22);
+      mountain(s, rng, x, -0.5, z, r, h, [0x8d99ae, 0x7d8597], 0.5);
+    } else if (b === 'forest') {
+      for (let i = 0; i < 3; i++) s.cone(rng.pick([0x52796f, 0x3a5a40, 0x588157]), x + rng.range(-4, 4), -0.2, z + rng.range(-6, 6), rng.range(3, 5), rng.range(10, 18), 7);
+    } else if (b === 'harbor') {
+      s.box(p.a, x, 2, z, 6, 4, 14).prism(p.d, x, 4, z, 6.6, 3, 14.4);
+    } else {
+      mountain(s, rng, x, -2, z, rng.range(8, 13), rng.range(6, 10), b === 'candy' ? [p.a, p.b, 0xffd6ff] : [0x90be6d, 0x83b05f, 0x9cc77a]);
+    }
   }
 }
 
@@ -130,6 +179,8 @@ export class Environment {
   private path: TrackPath;
   private busy: [number, number][];
   private zone: BiomeId;
+  /** Bangkok's skytrain, running along its viaduct toward the runner; the stretch of track it runs over. */
+  private train: { group: THREE.Group; from: number; to: number; frontD: number; wait: number } | null = null;
 
   constructor(seed: number, biomes: BiomeId[], track: Track, path: TrackPath) {
     this.seed = seed;
@@ -143,6 +194,36 @@ export class Environment {
     this.root.add(this.instancer.root, this.sky.root, this.atmosphere.mesh);
     this.atmosphere.set(BIOMES[biomes[0]].particles, 0);
     this.addLandmarks();
+    const city = biomes.indexOf('th_city');
+    if (city >= 0) {
+      const lit = new Shapes(), glow = new Shapes();
+      lit.widen = glow.widen = true;
+      skytrain({ lit, glow }, BTS_X, TRAIN.cars);
+      const group = new THREE.Group();
+      group.add(...this.batchMeshes(lit, glow, false));
+      group.visible = false;
+      this.root.add(group);
+      this.train = { group, from: city * BIOME_LENGTH, to: (city + 1) * BIOME_LENGTH, frontD: -1e9, wait: 3 };
+    }
+  }
+
+  /** Send a train down the viaduct now and then while the runner is under it. */
+  private runTrain(playerD: number, dt: number) {
+    const t = this.train!;
+    const len = TRAIN.cars * 20.6;
+    t.frontD -= TRAIN.speed * dt;
+    // Gone past the camera: wait, then the next one appears far up the line.
+    if (t.frontD + len < playerD - VIEW_BEHIND) {
+      t.wait -= dt;
+      if (t.wait <= 0 && playerD > t.from - 60 && playerD < t.to - 80) {
+        t.frontD = Math.min(t.to, playerD + VIEW_AHEAD * 0.9);
+        t.wait = TRAIN.every;
+      }
+    }
+    // The viaduct ends at the zone's edges: no train hangs past them.
+    const tail = t.frontD + len;
+    t.group.visible = t.frontD > t.from && tail < t.to + 1 && t.frontD < playerD + VIEW_AHEAD;
+    t.group.position.z = -t.frontD;
   }
 
   private clear = (d0: number, d1: number) => !this.busy.some(([a, b]) => b > d0 && a < d1);
@@ -162,8 +243,18 @@ export class Environment {
     this.root.add(...meshes);
   }
 
-  private batchMeshes(lit: Shapes, glow: Shapes, castShadow = true): THREE.Mesh[] {
+  private batchMeshes(lit: Shapes, glow: Shapes, castShadow = true, water?: Shapes, halo?: Shapes): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
+    if (halo && !halo.empty) {
+      const m = new THREE.Mesh(halo.build(), haloMaterial);
+      m.renderOrder = 5;
+      out.push(m);
+    }
+    if (water && !water.empty) {
+      const m = new THREE.Mesh(water.build(), waterMaterial);
+      m.receiveShadow = true;
+      out.push(m);
+    }
     if (!lit.empty) {
       const m = lit.mesh();
       m.castShadow = castShadow;
@@ -175,14 +266,14 @@ export class Environment {
 
   private addLandmarks() {
     const country = this.country;
-    const lit = new Shapes(), glow = new Shapes();
-    lit.widen = glow.widen = true;
-    const b = { lit, glow };
+    const lit = new Shapes(), glow = new Shapes(), halo = new Shapes();
+    lit.widen = glow.widen = halo.widen = true;
+    const b = { lit, glow, halo };
     const extras = startArea(b, country, this.seed);
     for (let d = BIOME_LENGTH; d < RACE_LENGTH; d += BIOME_LENGTH) extras.push(...zoneGate(b, country, BIOMES[biomeAt(this.biomes, d + 1)], d));
     extras.push(...finishArea(b, country, RACE_LENGTH, this.seed));
     if (country) countryLandmarks(b, this.biomes, (i) => i * BIOME_LENGTH);
-    this.add(...this.batchMeshes(lit, glow), ...extras);
+    this.add(...this.batchMeshes(lit, glow, true, undefined, halo), ...extras);
   }
 
   private build(i: number): Chunk {
@@ -192,17 +283,18 @@ export class Environment {
     const rng = new Rng(this.seed * 7919 + i);
     const s = new Shapes();
     const glow = new Shapes();
-    s.widen = glow.widen = true;
+    const water = new Shapes(), halo = new Shapes();
+    s.widen = glow.widen = water.widen = halo.widen = true;
     // Props are placed, not drawn: move them out by the extra track width by hand.
     const by = TRACK_HALF - SCENE_HALF;
     const placements: Placement[] = [];
     const smallPlacements: Placement[] = [];
-    if (buildCountryChunk({ lit: s, glow, rng, biome: b, p, d0, clear: this.clear })) {
-      return { meshes: this.batchMeshes(s, glow, false), placements, small: smallPlacements };
+    if (buildCountryChunk({ lit: s, glow, water, halo, rng, biome: b, p, d0, clear: this.clear })) {
+      return { meshes: this.batchMeshes(s, glow, false, water, halo), placements, small: smallPlacements };
     }
     const large = decorList('large', b);
     const small = decorList('small', b);
-    ground(s, p, b, -d0);
+    ground(s, water, p, b, -d0, rng);
     for (const side of [-1, 1]) {
       for (let z = rng.range(0, 4); z < CHUNK; z += rng.range(5, 9)) {
         const near = side * rng.range(SCENE_HALF + 1.8, SCENE_HALF + 6);
@@ -219,7 +311,7 @@ export class Environment {
       }
     }
     far(s, p, b, -d0 - CHUNK / 2, rng);
-    return { meshes: this.batchMeshes(s, glow, false), placements, small: smallPlacements };
+    return { meshes: this.batchMeshes(s, glow, false, water), placements, small: smallPlacements };
   }
 
   /** Stream chunks, blend the zone look, move sky and particles. */
@@ -245,6 +337,12 @@ export class Environment {
         changed = true;
       }
     }
+    // Scenery right round the runner casts real shadows (the shadow map only
+    // covers a few metres anyway); everything further out is left out of that pass.
+    for (const [i, c] of this.chunks) {
+      const near = i * CHUNK < playerD + SHADOW_AHEAD && (i + 1) * CHUNK > playerD - SHADOW_BEHIND;
+      for (const m of c.meshes) if (m.material === flatMaterial) m.castShadow = near;
+    }
     // Small props vanish into the distance: only draw them in nearby chunks.
     if (changed) {
       this.instancer.rebuild([...this.chunks].flatMap(([i, c]) =>
@@ -258,9 +356,11 @@ export class Environment {
       this.atmosphere.set(BIOMES[zone].particles, playerD);
     }
     blendLook(this.look, lookOf(BIOMES[zone]), dt > 0 ? 1 - Math.exp(-dt * 0.9) : 1);
+    if (this.train) this.runTrain(playerD, dt);
+    haloStrength.value = 0.06 + 0.3 * this.look.night;
     this.atmosphere.update(dt, playerD);
     const f = this.path.frame(playerD);
-    this.sky.update(cam, this.look, f.y + this.groundBelow(playerD), f.yaw, dt, playerD);
+    this.sky.update(cam, this.look, f.y + this.groundBelow(playerD), f.yaw, dt);
   }
 
   /** Far ground height: below every bit of track in view. */
@@ -281,6 +381,7 @@ export class Environment {
   dispose() {
     for (const c of this.chunks.values()) for (const m of c.meshes) m.geometry.dispose();
     this.chunks.clear();
+    this.train?.group.children.forEach((m) => (m as THREE.Mesh).geometry.dispose());
     this.instancer.dispose();
     this.sky.dispose();
     this.atmosphere.dispose();

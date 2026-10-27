@@ -4,13 +4,13 @@
 // market, Ayutthaya; Great Wall, bamboo, lantern town, Guilin; sakura avenue,
 // Fushimi Inari, Tokyo by night, a snowed-in village).
 import { LANES, laneDividers, laneX } from '../config.ts';
-import { SCENE_HALF } from './shapes.ts';
+import { SCENE_HALF, type Shapes } from './shapes.ts';
 export { SCENE_HALF };
 import type { Rng } from '../core/rng.ts';
 import type { BiomeId, Palette } from '../world/biomes.ts';
 import {
-  GOLD, ball, bamboo, battlements, blob, boat, buffalo, castle, cedar, chedi, cherryTree, cnHouse, coconutPalm,
-  cone, cylinder, foodCart, rod, gassho, karst, kitsune, lanternLine, mountain, pagoda, panda, paddy, pine, powerPole,
+  BTS_FACE, BTS_X, GOLD, ball, bamboo, battlements, bkkTower, btsViaduct, blob, boat, buffalo, castle, cedar, chedi, cherryTree, cnHouse, coconutPalm,
+  andon, cone, cylinder, foodCart, pixelTower, tokyoTower, rod, gassho, karst, kitsune, lanternLine, mountain, pagoda, panda, paddy, pine, powerPole,
   prang, roundTree, shophouse, stiltHouse, stoneLantern, streetLamp, sugarPalm, thaiFlag, thaiHall,
   tokyoBuilding, torii, vending, watchtower, wire, yaksha, zebra, type Batch,
 } from './kit.ts';
@@ -18,6 +18,8 @@ import {
 export const CHUNK = 25;
 
 export interface ChunkCtx extends Batch {
+  /** Water surfaces (rivers, canals, the sea): drawn with moving ripples. */
+  water: Shapes;
   rng: Rng;
   biome: BiomeId;
   p: Palette;
@@ -29,9 +31,9 @@ export interface ChunkCtx extends Batch {
 const Z = (d: number) => -d;
 
 /** Ground planes either side, cut along z so they follow the bends. */
-function sides(c: ChunkCtx, color: number, y: number, from = SCENE_HALF + 0.4, width = 60) {
+function sides(c: ChunkCtx, color: number, y: number, from = SCENE_HALF + 0.4, width = 60, to: Shapes = c.lit) {
   const zc = Z(c.d0 + CHUNK / 2);
-  for (const s of [-1, 1]) c.lit.long(color, s * (from + width / 2), y - 0.1, zc, width, 0.2, CHUNK);
+  for (const s of [-1, 1]) to.long(color, s * (from + width / 2), y - 0.1, zc, width, 0.2, CHUNK);
 }
 
 function road(c: ChunkCtx, color: number, y = -0.1) {
@@ -77,15 +79,23 @@ function thCity(c: ChunkCtx) {
   laneDashes(c, 0xf4f4f4);
   edgeLines(c, 0xffd23f);
   stripedKerb(c, 0xd62828, 0xf4f4f4);
-  // Sidewalk with tiles, then the shophouse row.
+  // Sidewalk with tiles, then the shophouse row; on the right the pavement is
+  // wider, under the skytrain.
   const zc = Z(c.d0 + CHUNK / 2);
+  const face = (s: number) => (s > 0 ? BTS_FACE : 7.75);
   for (const s of [-1, 1]) {
-    lit.long(0xb9b3a8, s * 5.95, 0.02, zc, 3.6, 0.24, CHUNK);
-    for (let d = 0.6; d < CHUNK; d += 1.2) lit.box(0xa59f94, s * 5.95, 0.15, Z(c.d0 + d), 3.6, 0.01, 0.06);
+    const w = face(s) - 4.15, x = s * (4.15 + w / 2);
+    lit.long(0xb9b3a8, x, 0.02, zc, w, 0.24, CHUNK);
+    for (let d = 0.6; d < CHUNK; d += 1.2) lit.box(0xa59f94, x, 0.15, Z(c.d0 + d), w, 0.01, 0.06);
   }
   sides(c, p.side, 0, 7.75, 40);
+  btsViaduct(lit, BTS_X, Z(c.d0), CHUNK);
   for (const s of [-1, 1]) {
-    for (let d = 0; d < CHUNK - 0.1; d += 5) shophouse(c, rng, 7.75, s, Z(c.d0 + d + 2.5), 5);
+    for (let d = 0; d < CHUNK - 0.1; d += 5) shophouse(c, rng, face(s), s, Z(c.d0 + d + 2.5), 5);
+    if (s > 0) {
+      if (rng.chance(0.5)) foodCart(lit, rng, s * 7.6, Z(c.d0 + rng.range(4, 9)));
+      continue;
+    }
     // Power poles with the famous tangle of cables to the next pole.
     const poleD = c.d0 + (s < 0 ? 4 : 16);
     const px = s * 4.9;
@@ -96,12 +106,10 @@ function thCity(c: ChunkCtx) {
     if (rng.chance(0.5)) foodCart(lit, rng, s * 6.6, Z(c.d0 + rng.range(6, 12)));
     if (rng.chance(0.6)) thaiFlag(lit, s * 4.5, Z(c.d0 + 10), 5.5, rng.chance(0.4));
   }
-  // Towers rising behind the shophouses.
+  // Towers rising behind the shophouses: a near row and a taller far one.
   for (const s of [-1, 1]) {
-    if (!rng.chance(0.45)) continue;
-    const x = s * rng.range(30, 45), z = Z(c.d0 + rng.range(0, CHUNK)), h = rng.range(30, 70), w = rng.range(8, 14);
-    lit.box(rng.pick([0x9fb6c9, 0xb8c6d2, 0x8aa3b8, 0xd0d6dc]), x, h / 2, z, w, h, w);
-    for (let y = 4; y < h - 2; y += 3.2) c.glow.box(0xcfe8ff, x - s * (w / 2 + 0.02), y, z, 0.04, 1.2, w * 0.8);
+    if (rng.chance(0.55)) bkkTower(c, rng, s * rng.range(28, 38), Z(c.d0 + rng.range(0, CHUNK)), rng.range(9, 13), rng.range(26, 48), s);
+    if (rng.chance(0.4)) bkkTower(c, rng, s * rng.range(48, 62), Z(c.d0 + rng.range(0, CHUNK)), rng.range(11, 16), rng.range(50, 85), s);
   }
 }
 
@@ -161,8 +169,7 @@ function thMarket(c: ChunkCtx) {
   plainKerb(c, p.a, SCENE_HALF + 0.15, 0.25, 0.3);
   // Pier posts and the khlong.
   for (const s of [-1, 1]) for (let d = 2; d < CHUNK; d += 4) cylinder(lit, 0x4a3324, s * SCENE_HALF, waterY - 0.5, Z(c.d0 + d), 0.2, 0.8, 6);
-  sides(c, 0x3f9e8a, waterY, SCENE_HALF + 0.3, 16);
-  for (const s of [-1, 1]) for (let d = 3; d < CHUNK; d += 7) lit.box(0x62b8a6, s * rng.range(6, 16), waterY + 0.01, Z(c.d0 + d), rng.range(2, 4), 0.02, 0.15);
+  sides(c, 0x2f8f7c, waterY, SCENE_HALF + 0.3, 16, c.water);
   sides(c, 0x6aa34a, -0.2, SCENE_HALF + 16.3, 40);
   for (const s of [-1, 1]) {
     c.lit.long(0x8a6a4a, s * (SCENE_HALF + 16.3), -0.5, Z(c.d0 + CHUNK / 2), 0.8, 1.0, CHUNK);
@@ -186,8 +193,13 @@ function thMarket(c: ChunkCtx) {
 function thFields(c: ChunkCtx) {
   const { lit, rng, p } = c;
   road(c, p.ground);
-  // Tyre ruts and grassy verges.
+  // Tyre ruts, grassy verges, pebbles and the odd puddle holding the sunset.
   lit.exact(() => { for (const l of LANES) for (const o of [-0.45, 0.45]) lit.long(p.groundAlt, laneX(l) + o, 0.004, Z(c.d0 + CHUNK / 2), 0.25, 0.01, CHUNK); });
+  for (let i = 0; i < 18; i++) blob(lit, rng.pick([0x8a4a2c, 0xc98a5a, 0x9a5a38]), rng.range(-SCENE_HALF + 0.2, SCENE_HALF - 0.2), 0.02, Z(c.d0 + rng.range(0, CHUNK)), rng.range(0.05, 0.12), 0.05);
+  if (rng.chance(0.5)) {
+    const s = rng.chance(0.5) ? -1 : 1;
+    c.water.box(0xf3a46e, s * (SCENE_HALF - 0.7), 0.01, Z(c.d0 + rng.range(4, 21)), rng.range(0.8, 1.2), 0.02, rng.range(1.4, 2.4));
+  }
   for (const s of [-1, 1]) lit.long(0x6f9e3a, s * (SCENE_HALF + 0.3), 0.02, Z(c.d0 + CHUNK / 2), 0.8, 0.12, CHUNK);
   sides(c, 0x8a6a45, -0.1, SCENE_HALF + 0.7, 50);
   // Rice paddies, some flooded and mirroring the sunset.
@@ -195,8 +207,8 @@ function thFields(c: ChunkCtx) {
     for (let i = 0; i < 3; i++) {
       const w = rng.range(6, 9);
       const x = s * (SCENE_HALF + 1.5 + i * 9 + w / 2);
-      const flooded = rng.chance(0.3);
-      paddy(lit, x, Z(c.d0 + 12.5), w, 12, flooded ? 0xffb27a : rng.pick([0x8fd14f, 0x7dbb3c, 0xa4d65e]), -0.05);
+      const flooded = rng.chance(0.35);
+      paddy(lit, x, Z(c.d0 + 12.5), w, 12, flooded ? 0xf09a68 : rng.pick([0x8fd14f, 0x7dbb3c, 0xa4d65e]), -0.05, flooded ? c.water : undefined);
       paddy(lit, x, Z(c.d0 + 25 - 0.1), w, 12, rng.pick([0x8fd14f, 0x9ad85a, 0x76b83a]), -0.05);
     }
     along(c, 10, 3, (d) => sugarPalm(lit, rng, s * rng.range(6, 26), Z(d), rng.range(9, 14)));
@@ -300,8 +312,7 @@ function cnGuilin(c: ChunkCtx) {
   plainKerb(c, 0x7f7a70, SCENE_HALF + 0.2, 0.35, 0.45);
   for (const s of [-1, 1]) c.lit.long(0x8f8a80, s * (SCENE_HALF + 0.5), (waterY - 0.1) / 2, Z(c.d0 + CHUNK / 2), 0.6, -waterY + 0.1, CHUNK);
   // River on the left, terraces on the right.
-  c.lit.long(0x3e9a8a, -(SCENE_HALF + 0.8 + 30), waterY, Z(c.d0 + CHUNK / 2), 60, 0.2, CHUNK);
-  for (let d = 3; d < CHUNK; d += 6) lit.box(0x6fc0b0, -rng.range(6, 24), waterY + 0.11, Z(c.d0 + d), rng.range(2, 5), 0.02, 0.15);
+  c.water.long(0x2f8c80, -(SCENE_HALF + 0.8 + 30), waterY, Z(c.d0 + CHUNK / 2), 60, 0.2, CHUNK);
   // Terraces stepping up the hillside.
   for (let i = 0; i < 5; i++) {
     const x = SCENE_HALF + 0.8 + i * 5 + 2.5;
@@ -410,6 +421,8 @@ function jpSnow(c: ChunkCtx) {
   // Snowbanks pushed to the edges.
   for (const s of [-1, 1]) for (let d = 0.8; d < CHUNK; d += 1.6) blob(lit, rng.pick([0xffffff, 0xf2f6fc]), s * (SCENE_HALF + 0.55), 0, Z(c.d0 + d), 0.8, rng.range(0.35, 0.55), 1.0, true);
   sides(c, p.side, 0.05);
+  // Paper lanterns light the path, alternating sides.
+  for (let d = 2; d < CHUNK; d += 6.25) andon(c, (Math.round(d / 6.25) % 2 ? 1 : -1) * (SCENE_HALF + 1.3), Z(c.d0 + d));
   for (const s of [-1, 1]) {
     if (rng.chance(0.7)) gassho(c, rng, s * rng.range(12, 16), Z(c.d0 + rng.range(6, 19)), s);
     along(c, 5, 1.5, (d) => pine(lit, rng, s * rng.range(SCENE_HALF + 3, SCENE_HALF + 9), Z(d), rng.range(5, 9), true));
@@ -441,6 +454,9 @@ export function countryLandmarks(b: Batch, biomes: BiomeId[], zoneStart: (i: num
     if (id === 'cn_town') pagoda(b, 40, Z(d + 300), 9, 9, 0xb22222, 0x2f3b45, GOLD, true);
     if (id === 'th_palace') chedi(b.lit, -44, Z(d + 250), 46);
     if (id === 'th_fields') for (const [x, dd, h] of [[-30, 120, 26], [34, 330, 30]]) prang(b.lit, x, Z(d + dd), h, 0xa8553a, 0x7a3a28);
+    // Landmarks seen far down the street, a little off to the side.
+    if (id === 'jp_tokyo') tokyoTower(b, 34, Z(d + 360), 95);
+    if (id === 'th_city') pixelTower(b, -42, Z(d + 320), 110, 13);
   });
 }
 

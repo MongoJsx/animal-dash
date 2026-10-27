@@ -24,8 +24,8 @@ function bestStat(s: Stats): Role {
 export interface Rules { map: MapId; lanes: number; items: ItemKind[]; bots: number }
 /** Bots that fit beside `players` players. */
 const botsOn = (r: Rules, players: number) => Math.max(0, Math.min(r.bots, r.lanes - players));
-/** "🇯🇵 ญี่ปุ่น · 5 เลน · 🤖 3 · ไอเท็ม 3/5" for the room's settings pill. */
-const rulesLine = (r: Rules, players: number) => `${MAPS[r.map].flag} ${MAPS[r.map].name} · ${r.lanes} เลน · 🤖 ${botsOn(r, players)} · ${
+/** "🤖 3 · ไอเท็ม 3/5" for the bots-and-items pill. */
+const rulesLine = (r: Rules, players: number) => `🤖 ${botsOn(r, players)} · ${
   r.items.length === ITEM_KINDS.length ? 'ไอเท็มครบ' : r.items.length ? `ไอเท็ม ${r.items.length}/${ITEM_KINDS.length}` : 'ไม่มีไอเท็ม'}`;
 const roleOf = (s: Stats) => `${ROLE_ICON[bestStat(s)]} ${ROLE[bestStat(s)]}`;
 
@@ -53,6 +53,12 @@ const fmtTime = (t: number) => {
   const m = Math.floor(t / 60);
   const s = t - m * 60;
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
+};
+
+/** A result to the ten-thousandth: hundredths as usual, the next two digits small and grey. */
+const fineTime = (t: number) => {
+  const tt = Math.floor(t * 10000 + 1e-6);
+  return `${fmtTime(Math.floor(tt / 100) / 100)}<i class="fine">${String(tt % 100).padStart(2, '0')}</i>`;
 };
 
 /** Finishing order: finishers by time, then everyone else by distance. */
@@ -305,9 +311,16 @@ export class Hud {
     this.pick.innerHTML = `
       <div class="pick-top">
         <button class="back-btn" aria-label="กลับ">‹</button>
-        <div class="pick-title"><b>เลือกนักวิ่ง</b>
-          <button class="rules-btn" ${o.canEdit ? '' : 'disabled'}>${rulesLine(o.rules, o.players)}<i>${o.canEdit ? '⚙' : '🔒'}</i></button>
+        <div class="pick-title"><b>เลือกนักวิ่ง</b></div>
+      </div>
+      <div class="pick-rules">
+        <div class="map-step">
+          <button class="map-arrow" data-step="-1" aria-label="ด่านก่อนหน้า" ${o.canEdit ? '' : 'disabled'}>‹</button>
+          <div class="map-now"><i></i><b></b><small></small></div>
+          <button class="map-arrow" data-step="1" aria-label="ด่านถัดไป" ${o.canEdit ? '' : 'disabled'}>›</button>
         </div>
+        <div class="lane-pick">${LANE_CHOICES.map((n) => `<button data-lanes="${n}" class="${n === o.rules.lanes ? 'on' : ''}" ${o.canEdit && n >= o.players ? '' : 'disabled'}><b>${n}</b> เลน</button>`).join('')}</div>
+        <button class="rules-btn" ${o.canEdit ? '' : 'disabled'}>${rulesLine(o.rules, o.players)}<i>${o.canEdit ? '⚙' : '🔒'}</i></button>
       </div>
       <div class="rules modal hidden"><div class="help-card rules-card"></div></div>
       <div class="ltags"></div>
@@ -346,11 +359,46 @@ export class Hud {
       };
     });
     this.pick.querySelector<HTMLButtonElement>('.ready-btn')!.onclick = () => { sound.click(); o.onReady(); };
-    if (o.canEdit) this.pick.querySelector<HTMLButtonElement>('.rules-btn')!.onclick = () => this.rulesSheet(o.rules, o.players, o.onRules);
+    // Map and lanes right on the screen. Flicking through maps only shows the
+    // name; the line is rebuilt once the arrows have been still for a moment.
+    let map = o.rules.map;
+    const now = this.pick.querySelector<HTMLElement>('.map-now')!;
+    const drawMap = () => {
+      now.querySelector('i')!.textContent = MAPS[map].flag;
+      now.querySelector('b')!.textContent = MAPS[map].name;
+      now.querySelector('small')!.textContent = `ด่าน ${MAP_IDS.indexOf(map) + 1}/${MAP_IDS.length}`;
+    };
+    drawMap();
+    let settle = 0;
+    if (o.canEdit) {
+      this.pick.querySelectorAll<HTMLButtonElement>('.map-arrow').forEach((b) => {
+        b.onclick = () => {
+          sound.select();
+          map = MAP_IDS[(MAP_IDS.indexOf(map) + Number(b.dataset.step) + MAP_IDS.length) % MAP_IDS.length];
+          drawMap();
+          now.classList.remove('swap');
+          void now.offsetWidth;
+          now.classList.add('swap', b.dataset.step === '1' ? 'next' : 'prev');
+          clearTimeout(settle);
+          settle = window.setTimeout(() => o.onRules({ ...o.rules, map }), 450);
+        };
+      });
+      this.pick.querySelectorAll<HTMLButtonElement>('[data-lanes]').forEach((b) => {
+        b.onclick = () => {
+          if (b.classList.contains('on')) return;
+          sound.select();
+          clearTimeout(settle);
+          // More lanes, more runners: the lanes nobody plays in get bots (fewer in the ⚙ sheet).
+          const lanes = Number(b.dataset.lanes);
+          o.onRules({ ...o.rules, map, lanes, bots: lanes - o.players });
+        };
+      });
+      this.pick.querySelector<HTMLButtonElement>('.rules-btn')!.onclick = () => { clearTimeout(settle); this.rulesSheet({ ...o.rules, map }, o.players, o.onRules); };
+    }
     this.pick.querySelector<HTMLButtonElement>('.back-btn')!.onclick = () => { sound.tap(); o.onBack(); };
   }
 
-  /** Race settings: map, lanes, bots and which items are in play. Applied when closed. */
+  /** Bots and which items are in play (map and lanes are on the screen). Applied when closed. */
   private rulesSheet(current: Rules, players: number, apply: (r: Rules) => void) {
     sound.tap();
     const r: Rules = { ...current, items: [...current.items] };
@@ -359,19 +407,13 @@ export class Hud {
     const draw = () => {
       const allOn = r.items.length === ITEM_KINDS.length;
       card.innerHTML = `<div class="help-title">ตั้งค่าการแข่ง</div>
-        <div class="rule-h">ด่าน</div>
-        <div class="maps">${MAP_IDS.map((m) => `<button class="map ${m === r.map ? 'on' : ''}" data-map="${m}"><span>${MAPS[m].flag}</span>${MAPS[m].name}</button>`).join('')}</div>
-        <div class="rule-h">ลู่วิ่ง <small>${players > 1 ? `ผู้เล่น ${players} คน` : 'คนละเลน'}</small></div>
-        <div class="lanes">${LANE_CHOICES.map((n) => `<button class="lane-n ${n === r.lanes ? 'on' : ''}" data-lanes="${n}" ${n < players ? 'disabled' : ''}><b>${n}</b> เลน<i>${'<u></u>'.repeat(n)}</i></button>`).join('')}</div>
-        <div class="rule-h">บอท <small>รวม ${players + botsOn(r, players)} คนในสนาม</small></div>
+        <div class="rule-h">บอท <small>${r.lanes} เลน · รวม ${players + botsOn(r, players)} คนในสนาม</small></div>
         <div class="lanes bots" style="grid-template-columns: repeat(${r.lanes - players + 1}, 1fr)">${Array.from({ length: r.lanes - players + 1 }, (_, n) =>
           `<button class="lane-n ${n === botsOn(r, players) ? 'on' : ''}" data-bots="${n}"><b>${n}</b>${n ? ' 🤖' : ' ไม่มี'}</button>`).join('')}</div>
         <div class="rule-h">ไอเท็ม <button class="all-items ${allOn ? 'on' : ''}" data-all>${allOn ? 'ปิดทั้งหมด' : 'เปิดทั้งหมด'}</button></div>
         <div class="itoggles">${ITEM_KINDS.map((k) => `<button class="itog ${r.items.includes(k) ? 'on' : ''}" data-item="${k}"><i>${ITEM_ICON[k]}</i><span>${ITEM_NAME[k]}</span></button>`).join('')}</div>
         ${r.items.length ? '' : '<div class="sheet-note">ปิดไอเท็มหมด: ไม่มีกล่อง ? บนสนาม วัดกันที่ฝีเท้าล้วน ๆ</div>'}
         <button class="help-close" data-done>เสร็จ</button>`;
-      card.querySelectorAll<HTMLButtonElement>('.map').forEach((b) => { b.onclick = () => { sound.select(); r.map = b.dataset.map as MapId; draw(); }; });
-      card.querySelectorAll<HTMLButtonElement>('[data-lanes]').forEach((b) => { b.onclick = () => { sound.select(); r.lanes = Number(b.dataset.lanes); draw(); }; });
       card.querySelectorAll<HTMLButtonElement>('[data-bots]').forEach((b) => { b.onclick = () => { sound.select(); r.bots = Number(b.dataset.bots); draw(); }; });
       card.querySelectorAll<HTMLButtonElement>('.itog').forEach((b) => {
         b.onclick = () => {
@@ -579,14 +621,18 @@ export class Hud {
   }
 
   /** Ceremony overlay; `sorted` is the finishing order. Tags follow the podium via `placeTags`. */
-  showResults(sorted: Racer[], mapLabel: string, reward: number, onAgain: (btn: HTMLButtonElement) => void, onMenu: () => void) {
+  /**
+   * @param onAgain straight into another race; `onRoom` back to the runner select
+   *   (both with the button pressed, for a guest left waiting on the host)
+   */
+  showResults(sorted: Racer[], mapLabel: string, reward: number, onAgain: (btn: HTMLButtonElement) => void, onRoom: (btn: HTMLButtonElement) => void, onMenu: () => void) {
     const place = sorted.findIndex((r) => r.isPlayer) + 1;
     const me = sorted[place - 1];
     const best = sorted[0].finished ? sorted[0].finishTime : 0;
     const title = ['แชมป์!', 'เหรียญเงิน!', 'เหรียญทองแดง!'][place - 1] ?? `อันดับ ${place}`;
     const sub = place === 1 ? 'เร็วที่สุดในสนาม' : place <= 3 ? 'ขึ้นโพเดียมแล้ว!' : 'เกือบแล้ว! อีกนิดเดียว';
     const medal = (i: number) => `<span class="medal m${Math.min(i, 3)}">${i + 1}</span>`;
-    const result = (r: Racer) => r.finished ? fmtTime(r.finishTime) : `เหลือ ${Math.max(0, Math.round(RACE_LENGTH - r.d))} m`;
+    const result = (r: Racer) => r.finished ? fineTime(r.finishTime) : `เหลือ ${Math.max(0, Math.round(RACE_LENGTH - r.d))} m`;
     const gap = (r: Racer, i: number) => i === 0 || !r.finished ? '' : `+${(r.finishTime - best).toFixed(2)}`;
     this.race.classList.add('hidden');
     this.root.classList.remove('zone', 'dashing');
@@ -604,10 +650,12 @@ export class Hud {
       <div class="tags">${sorted.map((r, i) => `<div class="tag ${r.isPlayer ? 'me' : ''} t${Math.min(i, 3)}">${medal(i)}<span>${r.name}</span></div>`).join('')}</div>
       <div class="res-panel">
         <ol>${sorted.map((r, i) => `<li class="${r.isPlayer ? 'me' : ''}" style="--i:${i}">${medal(i)}<span class="nm">${r.name}${r.isPlayer ? '<em>คุณ</em>' : ''}</span><span class="tm"><b>${result(r)}</b><small>${gap(r, i)}</small></span></li>`).join('')}</ol>
-        <div class="row"><button class="again">แข่งอีกครั้ง</button><button class="menu-btn">เมนูหลัก</button></div>
+        <div class="row"><button class="again">แข่งอีกครั้ง</button><button class="room-btn">กลับห้อง</button><button class="menu-btn" aria-label="เมนูหลัก">⌂</button></div>
       </div>`;
     const again = this.results.querySelector<HTMLButtonElement>('.again')!;
+    const room = this.results.querySelector<HTMLButtonElement>('.room-btn')!;
     again.onclick = () => onAgain(again);
+    room.onclick = () => onRoom(room);
     this.results.querySelector<HTMLButtonElement>('.menu-btn')!.onclick = onMenu;
   }
 

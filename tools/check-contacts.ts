@@ -2,7 +2,7 @@
 // the pack and dash through it, then run it out past the line; check no two
 // bodies ever overlap, whatever their strength.
 // Usage: npx tsx tools/check-contacts.ts
-import { BODY, LANES, TICK, laneX, setLaneCount } from '../src/config.ts';
+import { BODY, LANES, LANE_CHOICES, TICK, laneX, setLaneCount } from '../src/config.ts';
 import { resolveContacts } from '../src/entities/contact.ts';
 import { Player } from '../src/entities/player.ts';
 import { Rival } from '../src/entities/rival.ts';
@@ -12,7 +12,7 @@ import { buildTrack } from '../src/world/track.ts';
 let failures = 0;
 let bumps = 0, dashes = 0, stuns = 0, barges = 0, shoved = 0;
 for (let seed = 1; seed <= 60; seed++) {
-  setLaneCount(3 + (seed % 3));
+  setLaneCount(LANE_CHOICES[seed % LANE_CHOICES.length]);
   const track = buildTrack(seed, (['thai', 'china', 'japan'] as const)[seed % 3]);
   const p = new Player();
   p.startSlot(laneX(LANES[0]), LANES[0]);

@@ -1,6 +1,6 @@
 // Ties simulation, rendering and UI together: menu → countdown → race → results.
 import * as THREE from 'three';
-import { BASE_STATS, BODY, DASH, ITEM, LANES, LANE_COUNT, PLAYER, laneX, RACE_LENGTH, TICK, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED, setLaneCount, laneIndex, nearestLane } from './config.ts';
+import { BASE_STATS, BODY, fitLanes, DASH, ITEM, LANES, LANE_COUNT, PLAYER, laneX, RACE_LENGTH, TICK, TRACK_HALF, VIEW_AHEAD, VIEW_BEHIND, STOP_SPEED, setLaneCount, laneIndex, nearestLane } from './config.ts';
 import { COUNTDOWN_GO, sound, type Surface } from './core/audio.ts';
 import { Input } from './core/input.ts';
 import { Rng } from './core/rng.ts';
@@ -42,7 +42,7 @@ const SKILLS: RivalSkill[] = [
   { mistake: 0.27, pace: 0.985 },
   { mistake: 0.22, pace: 0.99 },
 ];
-const COLORS = ['#e04a3a', '#f6b73c', '#4fae6a', '#2a7fd4', '#8a6bd1'];
+const COLORS = ['#e04a3a', '#f6b73c', '#4fae6a', '#2a7fd4', '#8a6bd1', '#f07aa0', '#1fb5a8'];
 /** Lanes (index from the left) in the order runners take them: the middle one first, then outwards. */
 const laneOrder = (n: number) => {
   const mid = Math.floor((n - 1) / 2);
@@ -100,8 +100,8 @@ export class Game {
   private state: State = 'menu';
   private chars: CharacterDef[];
   private selected: string;
-  /** Lanes on the track (3–5) = runners in a solo race. */
-  private laneCount = profile.lanes ?? 3;
+  /** Lanes on the track (3, 5 or 7) = runners in a solo race. */
+  private laneCount = fitLanes(profile.lanes);
   /** Items switched on for the race (none: no item boxes on the track). */
   private itemsOn: ItemKind[] = ITEM_KINDS.filter((k) => !profile.items || profile.items.includes(k));
   /** Seed of the field standing on the line in the runner select. */
@@ -277,7 +277,7 @@ export class Game {
       this.scene.remove(this.crowd.mesh);
       this.crowd.dispose();
     }
-    this.crowd = new Crowd(seed);
+    this.crowd = new Crowd(seed, this.track.biomes);
     this.scene.add(this.crowd.mesh);
     this.path = new TrackPath(seed, this.track.biomes);
     setBendPath(this.path);
@@ -301,6 +301,7 @@ export class Game {
 
   private showMenu() {
     this.state = 'menu';
+    this.autoReady = false;
     sound.setMusic('menu');
     this.quietBeds();
     this.input.enabled = false;
@@ -658,6 +659,10 @@ export class Game {
     this.pickTags();
     this.updateReady();
     this.shareRoom();
+    if (this.autoReady) {
+      this.autoReady = false;
+      this.onReady();
+    }
   }
 
   /**
@@ -1023,7 +1028,7 @@ export class Game {
     p.step(dt, this.t, actions, this.track);
     const net = this.netRace && this.online!.connected;
     if (net && this.gunT < LAUNCH_AT + START_MIRROR) this.startPath.push(p.d);
-    if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.finishClock());
+    if (!p.finished && p.d >= RACE_LENGTH) p.finish(this.crossedAt(p.d, p.speed));
     for (const e of p.events) this.onPlayerEvent(e);
     p.events.length = 0;
 
@@ -1062,7 +1067,7 @@ export class Game {
       const near = people.reduce((a, b) => (Math.abs(b - s.d) < Math.abs(a - s.d) ? b : a));
       s.step(dt, this.track, near, this.traffic(s));
       if (!s.finished && s.d >= RACE_LENGTH) {
-        s.finish(this.finishClock());
+        s.finish(this.crossedAt(s.d, s.speed));
         if (net) this.online!.send({ t: 'fin', time: s.finishTime, id: r.id });
       }
       for (const item of s.fired) if (item === 'ink') this.splatAhead(s);
@@ -1137,7 +1142,7 @@ export class Game {
     };
     const place = order.findIndex((i) => racers[i].isPlayer) + 1;
     const reward = recordRace(place, racers.length, this.player.finished ? this.player.finishTime : null, `${this.map}/${LANE_COUNT}`);
-    this.hud.showResults(order.map((i) => racers[i]), `${MAPS[this.map].flag} ${MAPS[this.map].name}`, reward, (btn) => this.again(btn), () => this.showMenu());
+    this.hud.showResults(order.map((i) => racers[i]), `${MAPS[this.map].flag} ${MAPS[this.map].name}`, reward, (btn) => this.again(btn, true), (btn) => this.again(btn, false), () => this.showMenu());
   }
 
   private cheer: number[] = [];
@@ -1148,6 +1153,13 @@ export class Game {
    *  game times can put the one who crossed second in first place. */
   private finishClock() {
     return this.netRace ? (this.online!.now() - this.gunWall) / 1000 : this.t;
+  }
+
+  /** The moment a runner now `d` metres along at `v` m/s actually crossed the line:
+   *  the tick only notices after the fact, up to 1/60 s late, which would round
+   *  every time to the tick and tie runners a few hundredths apart. */
+  private crossedAt(d: number, v: number) {
+    return this.finishClock() - Math.min(TICK, Math.max(0, (d - RACE_LENGTH) / Math.max(v, 1)));
   }
 
   /** Finishing place for a finish time (1 = first). */
@@ -1231,17 +1243,21 @@ export class Game {
     }));
   }
 
-  private again(btn: HTMLButtonElement) {
+  /** @param go ready at once (straight into the countdown solo); otherwise just back in the room */
+  private again(btn: HTMLButtonElement, go: boolean) {
     const o = this.online;
+    this.autoReady = go;
     if (o?.connected && o.role === 'guest') {
       o.send({ t: 'again' });
       btn.textContent = 'รอเจ้าห้อง…';
-      btn.disabled = true;
+      for (const b of btn.parentElement!.querySelectorAll<HTMLButtonElement>('.again, .room-btn')) b.disabled = true;
       return;
     }
     // Back to the room with the same runner, for a new track.
     this.onStartPressed();
   }
+  /** Pressed "race again": press ready as soon as the room opens. */
+  private autoReady = false;
 
   private onLaunch() {
     this.playerView?.play('burst', BURST_TIME);

@@ -34,6 +34,8 @@ export interface Palette {
   hills?: number; // elevation swing of the track in metres
   sideY?: number; // height of the land beside the track
   particles?: Particles;
+  /** 0 = day, 1 = full night: darkens the painted sky, brings out stars and the glow round lights. */
+  night?: number;
 }
 
 export const BIOMES: Record<BiomeId, Palette> = {
@@ -62,7 +64,7 @@ export const BIOMES: Record<BiomeId, Palette> = {
   th_fields: {
     name: 'อยุธยายามเย็น', country: 'th', sky: 0xffb26b, skyTop: 0x6a5acd, ground: 0xb4693e, groundAlt: 0xa05c35, side: 0x7dbb3c,
     a: 0xb5523b, b: 0x8fd14f, c: 0xffcf56, d: 0x5a2e1e, sun: 0xffb36b, sunI: 2.5, sunAngle: 0.28, hemiSky: 0xffc89a, hemiGround: 0x6b5a3a, hemiI: 1.35,
-    fog: [55, 200], hills: 1.6, particles: 'lanterns',
+    fog: [55, 200], hills: 1.6, particles: 'lanterns', night: 0.3,
   },
 
   // ── China ─────────────────────────────────────────────────────────────
@@ -79,7 +81,7 @@ export const BIOMES: Record<BiomeId, Palette> = {
   cn_town: {
     name: 'เมืองโบราณตรุษจีน', country: 'cn', sky: 0xffb38a, skyTop: 0x3a2a6b, ground: 0x8a4b3a, groundAlt: 0x7a4032, side: 0x6d5a4a,
     a: 0xc0392b, b: 0x3a3f47, c: 0xffc93c, d: 0x2b2124, sun: 0xffa36b, sunI: 2.0, sunAngle: 0.25, hemiSky: 0xffc3a0, hemiGround: 0x4a3030, hemiI: 1.4,
-    fog: [50, 200], hills: 0.8, particles: 'confetti',
+    fog: [50, 200], hills: 0.8, particles: 'confetti', night: 0.45,
   },
   cn_guilin: {
     name: 'ขุนเขากุ้ยหลิน', country: 'cn', sky: 0xd9eef0, skyTop: 0x6fb3d9, ground: 0xa89f8c, groundAlt: 0x968d7a, side: 0x3e9a8a,
@@ -101,12 +103,12 @@ export const BIOMES: Record<BiomeId, Palette> = {
   jp_tokyo: {
     name: 'โตเกียวยามค่ำ', country: 'jp', sky: 0xff8fa3, skyTop: 0x1d1b4a, ground: 0x2f3040, groundAlt: 0x3a3b4e, side: 0x3a3a48,
     a: 0xf2f2f2, b: 0x3a86ff, c: 0xff006e, d: 0x1a1a24, sun: 0xffb0c0, sunI: 1.5, sunAngle: 0.2, hemiSky: 0x9a8cff, hemiGround: 0x403050, hemiI: 1.45,
-    fog: [45, 200], hills: 0.8,
+    fog: [45, 200], hills: 0.8, night: 1,
   },
   jp_snow: {
     name: 'หมู่บ้านหิมะ', country: 'jp', sky: 0xd8e4f5, skyTop: 0x5a78b0, ground: 0xeef3fa, groundAlt: 0xdfe8f4, side: 0xf7faff,
     a: 0x6b4a32, b: 0xa8c8f0, c: 0xd7263d, d: 0x3a3f55, sun: 0xffe2c4, sunI: 2.0, sunAngle: 0.4, hemiSky: 0xe0ecff, hemiGround: 0x9aa6c0, hemiI: 1.6,
-    fog: [40, 190], hills: 2.2, particles: 'snow',
+    fog: [40, 190], hills: 2.2, particles: 'snow', night: 0.35,
   },
 };
 
@@ -114,15 +116,16 @@ export type MapId = 'thai' | 'china' | 'japan' | 'fable';
 
 export interface MapDef {
   name: string;
+  /** The map's emblem, shown beside its name. */
   flag: string;
   zones?: BiomeId[]; // fixed order; without it four classic biomes are drawn at random
 }
 
 export const MAPS: Record<MapId, MapDef> = {
-  thai: { name: 'ไทย', flag: '🇹🇭', zones: ['th_city', 'th_palace', 'th_market', 'th_fields'] },
-  china: { name: 'จีน', flag: '🇨🇳', zones: ['cn_wall', 'cn_bamboo', 'cn_town', 'cn_guilin'] },
-  japan: { name: 'ญี่ปุ่น', flag: '🇯🇵', zones: ['jp_sakura', 'jp_torii', 'jp_tokyo', 'jp_snow'] },
-  fable: { name: 'นิทาน', flag: '🏰' },
+  thai: { name: 'เมืองวัดทอง', flag: '🛺', zones: ['th_city', 'th_palace', 'th_market', 'th_fields'] },
+  china: { name: 'กำแพงมังกร', flag: '🐉', zones: ['cn_wall', 'cn_bamboo', 'cn_town', 'cn_guilin'] },
+  japan: { name: 'ทางซากุระ', flag: '🌸', zones: ['jp_sakura', 'jp_torii', 'jp_tokyo', 'jp_snow'] },
+  fable: { name: 'ดินแดนนิทาน', flag: '🏰' },
 };
 
 export const MAP_IDS = Object.keys(MAPS) as MapId[];

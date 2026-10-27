@@ -14,13 +14,57 @@ export function setWind(t: number) {
   wind.value = t;
 }
 // The shared hook (bend.ts) is installed later, so look it up when compiling.
+// Surface detail, in straight track space so it never swims round bends:
+// - grain: two octaves of value noise break up every flat colour like painted
+//   card, coarse blotches plus fine speckle (a road reads as asphalt, a wall as plaster);
+// - grounding: walls darken toward their foot and brighten toward their top,
+//   so houses, trees and posts sit on the ground instead of floating on it;
+// - ground speckle is stronger on level faces, wall grain runs in bands.
+const DETAIL_VS = /* glsl */ `
+varying vec3 vStraight;`;
+const DETAIL_FS = /* glsl */ `
+varying vec3 vStraight;
+float dHash( vec3 p ) {
+  p = fract( p * 0.3183099 + 0.1 );
+  p *= 17.0;
+  return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) );
+}
+float dNoise( vec3 x ) {
+  vec3 i = floor( x ), f = fract( x );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( mix( dHash( i ), dHash( i + vec3( 1, 0, 0 ) ), f.x ), mix( dHash( i + vec3( 0, 1, 0 ) ), dHash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+    mix( mix( dHash( i + vec3( 0, 0, 1 ) ), dHash( i + vec3( 1, 0, 1 ) ), f.x ), mix( dHash( i + vec3( 0, 1, 1 ) ), dHash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+}`;
+const DETAIL_APPLY = /* glsl */ `
+{
+  vec3 sp = vStraight;
+  vec3 fn = normalize( cross( dFdx( sp ), dFdy( sp ) ) );
+  float level = abs( fn.y );
+  float coarse = dNoise( sp * 0.45 );
+  float fine = dNoise( sp * vec3( 3.1, 3.1, 3.1 ) );
+  float speck = dNoise( sp * 11.0 );
+  // Fine detail fades with distance, so far surfaces stay calm instead of shimmering.
+  float near = 1.0 - smoothstep( 25.0, 80.0, length( vViewPosition ) );
+  float grain = ( coarse - 0.5 ) * 0.16 + ( ( fine - 0.5 ) * 0.10 + ( speck - 0.5 ) * 0.10 * level ) * near;
+  diffuseColor.rgb *= 1.0 + grain;
+  // Snow (bright, level): a few crystals glint, each only from some angles.
+  float bright = dot( diffuseColor.rgb, vec3( 0.333 ) );
+  if ( bright > 0.82 && level > 0.8 ) {
+    vec3 cell = floor( sp * 9.0 );
+    float glint = step( 0.992, dHash( cell ) ) * step( 0.6, fract( dHash( cell + 3.1 ) * 7.0 + dot( normalize( vViewPosition ), vec3( 2.0, 3.0, 1.0 ) ) ) );
+    diffuseColor.rgb += vec3( 0.6 ) * glint * near;
+  }
+  // Walls: darker at the foot, a touch lighter up top.
+  float foot = smoothstep( -0.2, 2.2, sp.y );
+  diffuseColor.rgb *= mix( 1.0, mix( 0.74, 1.04, foot ), 1.0 - level );
+}`;
 flatMaterial.onBeforeCompile = function (shader, renderer) {
   THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
   shader.uniforms.windTime = wind;
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', `#include <common>
 uniform float windTime;
-attribute vec2 sway;`)
+attribute vec2 sway;${DETAIL_VS}`)
     .replace('#include <begin_vertex>', `#include <begin_vertex>
 if ( sway.x + sway.y > 0.0 ) {
   float ph = position.x * 0.21 + position.z * 0.17;
@@ -28,9 +72,81 @@ if ( sway.x + sway.y > 0.0 ) {
   transformed.z += sway.x * sin( windTime * 1.2 + ph * 1.4 ) * 0.1;
   transformed.x += sway.y * sin( windTime * 9.0 + position.z * 4.5 + position.y * 1.5 ) * 0.11;
   transformed.y += sway.y * sin( windTime * 7.0 + position.z * 3.0 ) * 0.03;
+}
+vStraight = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>${DETAIL_FS}`)
+    .replace('#include <color_fragment>', `#include <color_fragment>${DETAIL_APPLY}`);
+};
+flatMaterial.customProgramCacheKey = () => 'flat-wind-detail';
+/**
+ * Water: the vertex colour, glossy, with drifting ripples that bend the sun's
+ * highlight into glints, darker troughs and pale crests (straight track space,
+ * so the pattern flows along the bends with the scenery).
+ */
+export const waterMaterial = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: 0x9a9a9a });
+waterMaterial.onBeforeCompile = function (shader, renderer) {
+  THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
+  shader.uniforms.windTime = wind;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+varying vec3 vStraight;`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+vStraight = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+uniform float windTime;
+varying vec3 vStraight;
+float wHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+float wNoise( vec2 x ) {
+  vec2 i = floor( x ), f = fract( x );
+  f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( wHash( i ), wHash( i + vec2( 1, 0 ) ), f.x ), mix( wHash( i + vec2( 0, 1 ) ), wHash( i + vec2( 1, 1 ) ), f.x ), f.y );
+}
+float wHeight( vec2 p ) {
+  float t = windTime;
+  return wNoise( p * vec2( 0.35, 0.6 ) + vec2( t * 0.12, t * 0.25 ) ) * 0.6
+    + wNoise( p * vec2( 1.1, 1.6 ) - vec2( t * 0.3, t * 0.1 ) ) * 0.3
+    + wNoise( p * 3.2 + vec2( 0.0, t * 0.6 ) ) * 0.1;
+}`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+float wh = wHeight( vStraight.xz );
+float wFar = smoothstep( 20.0, 90.0, length( vViewPosition ) );
+// Troughs deeper, crests paler; further away it calms into a sheen.
+diffuseColor.rgb *= mix( 0.82 + wh * 0.34, 1.0, wFar * 0.6 );
+diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 1.0 ), smoothstep( 0.78, 0.92, wh ) * 0.35 * ( 1.0 - wFar ) );`)
+    .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+{
+  vec2 e = vec2( 0.15, 0.0 );
+  float h0 = wHeight( vStraight.xz );
+  vec2 grad = vec2( wHeight( vStraight.xz + e.xy ) - h0, wHeight( vStraight.xz + e.yx ) - h0 ) / e.x;
+  vec3 tilt = ( viewMatrix * vec4( - grad.x * 0.35, 0.0, - grad.y * 0.35, 0.0 ) ).xyz;
+  normal = normalize( normal + tilt );
 }`);
 };
-flatMaterial.customProgramCacheKey = () => 'flat-wind';
+waterMaterial.customProgramCacheKey = () => 'water-ripple';
+
+/**
+ * Soft light round lamps, lanterns and neon: additive discs facing down the
+ * track, bright in the middle and fading to nothing at the rim. They sink into
+ * the fog with distance (instead of turning fog-coloured) and are scaled by
+ * how dark it is (`haloStrength`, set per zone).
+ */
+export const haloStrength = { value: 0.2 };
+export const haloMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+haloMaterial.onBeforeCompile = function (shader, renderer) {
+  THREE.Material.prototype.onBeforeCompile.call(this, shader, renderer);
+  shader.uniforms.haloStrength = haloStrength;
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+uniform float haloStrength;`)
+    .replace('#include <fog_fragment>', `gl_FragColor.rgb *= haloStrength;
+#ifdef USE_FOG
+  gl_FragColor.rgb *= 1.0 - smoothstep( fogNear, fogFar, vFogDepth );
+#endif`);
+};
+haloMaterial.customProgramCacheKey = () => 'halo';
+
 /** Unlit: neon, lanterns, lit windows. */
 export const glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
 export const shadowMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false });
@@ -117,6 +233,28 @@ export class Shapes {
     return this;
   }
 
+  /**
+   * A glow disc facing +z (back up the track, toward the camera), rx by ry
+   * metres across its half-widths, full colour in the middle, nothing at the rim.
+   */
+  halo(color: number, x: number, y: number, z: number, rx: number, ry = rx): this {
+    return this.haloAt(color, x, y, z, 0, rx, ry);
+  }
+
+  /** A glow lying flat on the ground, rx across and rz along the track: light reflected off a wet street. */
+  puddle(color: number, x: number, z: number, rx: number, rz: number): this {
+    return this.haloAt(color, x, 0.03, z, -Math.PI / 2, rx, rz);
+  }
+
+  private haloAt(color: number, x: number, y: number, z: number, rx: number, sx: number, sy: number): this {
+    this.add(HALO, color, x, y, z, rx, 0, 0, sx, sy, 1);
+    const g = this.parts[this.parts.length - 1];
+    const col = g.attributes.color, fall = g.attributes.fall;
+    for (let i = 0; i < col.count; i++) col.setXYZ(i, col.getX(i) * fall.getX(i), col.getY(i) * fall.getX(i), col.getZ(i) * fall.getX(i));
+    g.deleteAttribute('fall');
+    return this;
+  }
+
   /** Axis-aligned box given by its centre and size. */
   box(color: number, x: number, y: number, z: number, w: number, h: number, d: number, ry = 0): this {
     return this.add(BOX, color, x, y, z, 0, ry, 0, w, h, d);
@@ -185,6 +323,23 @@ export class Shapes {
 }
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+
+// Unit glow disc: a centre, an inner ring at 30% radius and the rim, with a
+// falloff weight per vertex (1, 0.4, 0) so the colour fades out smoothly.
+const HALO = (() => {
+  const n = 14, pos: number[] = [], fall: number[] = [];
+  const ring = (r: number, i: number) => [Math.cos((i / n) * Math.PI * 2) * r, Math.sin((i / n) * Math.PI * 2) * r, 0];
+  const push = (p: number[], f: number) => { pos.push(...p); fall.push(f); };
+  for (let i = 0; i < n; i++) {
+    push([0, 0, 0], 1); push(ring(0.3, i), 0.4); push(ring(0.3, i + 1), 0.4);
+    push(ring(0.3, i), 0.4); push(ring(1, i), 0); push(ring(1, i + 1), 0);
+    push(ring(0.3, i), 0.4); push(ring(1, i + 1), 0); push(ring(0.3, i + 1), 0.4);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('fall', new THREE.Float32BufferAttribute(fall, 1));
+  return g;
+})();
 const CLOTH = new THREE.BoxGeometry(1, 1, 1, 1, 2, 8);
 
 const longBoxes = new Map<number, THREE.BufferGeometry>();

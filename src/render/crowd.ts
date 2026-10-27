@@ -1,11 +1,19 @@
-// Cheering spectators lining the start and the finish: little animal-eared
-// fans in team shirts, hopping and waving both arms over their heads. One
-// instanced mesh in track space (so it bends with the road like everything
-// else); the hopping and waving happen in the vertex shader off one time
-// uniform, so a frame costs nothing on the CPU.
+// Cheering spectators lining the start and the finish, and in knots along the
+// pavements of the city zones: little animal-eared fans in team shirts,
+// hopping and waving both arms over their heads. Instanced meshes in track
+// space (so they bend with the road like everything else), one per stretch so
+// only the fans near the runner are drawn; the hopping and waving happen in
+// the vertex shader off one time uniform, so a frame costs nothing on the CPU.
 import * as THREE from 'three';
-import { RACE_LENGTH, TRACK_HALF } from '../config.ts';
+import { BIOME_LENGTH, RACE_LENGTH, TRACK_HALF } from '../config.ts';
 import { Rng } from '../core/rng.ts';
+import type { BiomeId } from '../world/biomes.ts';
+import { SCENE_HALF } from './shapes.ts';
+
+/** Zones with a pavement where fans gather along the race, and how far out it runs (from the road edge, metres). */
+const STREETS: Partial<Record<BiomeId, [number, number]>> = {
+  th_city: [0.8, 2.6], cn_town: [0.6, 1.6], jp_tokyo: [0.8, 2.8], jp_sakura: [0.9, 2.2], th_palace: [0.9, 1.6],
+};
 
 const SHIRTS = [0xe63946, 0xffbe0b, 0x3a86ff, 0x2ec4b6, 0xff6b9d, 0x8338ec, 0xfb5607, 0x06d6a0, 0xffffff];
 const SKIN = 0xc8915a, PANTS = 0x2b2d42;
@@ -41,13 +49,19 @@ function fanGeometry() {
   return out;
 }
 
-export class Crowd {
-  readonly mesh: THREE.InstancedMesh;
-  private time = { value: 0 };
+interface Spot { x: number; d: number; s: number }
 
-  constructor(seed: number) {
+export class Crowd {
+  /** Everything the crowd draws (add this to the scene). */
+  readonly mesh = new THREE.Group();
+  private stands: { mesh: THREE.InstancedMesh; d0: number; d1: number }[] = [];
+  private time = { value: 0 };
+  private material: THREE.MeshLambertMaterial;
+  private geometry = fanGeometry();
+
+  constructor(seed: number, biomes: BiomeId[] = []) {
     const rng = new Rng(seed ^ 0xc40d);
-    const spots: { x: number; d: number; s: number }[] = [];
+    const spots: Spot[] = [];
     // Two rows each side: behind the start boxes, and along the run-in to the finish and the run-out past it.
     const line = (d0: number, d1: number) => {
       for (const side of [-1, 1]) for (let row = 0; row < 2; row++) {
@@ -58,6 +72,22 @@ export class Crowd {
     };
     line(3, 15);
     line(RACE_LENGTH - 26, RACE_LENGTH + 30);
+    // Knots of fans along the pavements, every 30-60 m; one mesh per 100 m.
+    const street: Spot[][] = [];
+    biomes.forEach((b, z) => {
+      const walk = STREETS[b];
+      if (!walk) return;
+      for (let d = z * BIOME_LENGTH + 30; d < (z + 1) * BIOME_LENGTH - 20; d += rng.range(30, 60)) {
+        const side = rng.chance(0.5) ? -1 : 1;
+        const knot: Spot[] = [];
+        const n = rng.int(4, 9);
+        for (let i = 0; i < n; i++) {
+          knot.push({ x: side * (SCENE_HALF + rng.range(walk[0], walk[1])) + side * (TRACK_HALF - SCENE_HALF), d: d + rng.range(-2.5, 2.5), s: rng.range(0.85, 1.08) });
+        }
+        const k = Math.floor(d / 100);
+        (street[k] ??= []).push(...knot);
+      }
+    });
 
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
     const time = this.time;
@@ -86,26 +116,37 @@ transformed.y += max( 0.0, sin( crowdTime * ( 6.0 + fan * 3.0 ) + fan * 31.0 ) )
     };
     mat.customProgramCacheKey = () => 'crowd';
 
-    this.mesh = new THREE.InstancedMesh(fanGeometry(), mat, spots.length);
+    this.material = mat;
+    this.stand(spots.filter((f) => f.d < RACE_LENGTH / 2), rng, -1e9, 40);
+    this.stand(spots.filter((f) => f.d > RACE_LENGTH / 2), rng, RACE_LENGTH - 200, 1e9);
+    street.forEach((list, k) => this.stand(list, rng, k * 100 - 200, k * 100 + 120));
+  }
+
+  /** One instanced batch of fans, drawn while the runner is between d0 and d1. */
+  private stand(spots: Spot[], rng: Rng, d0: number, d1: number) {
+    if (!spots.length) return;
+    const mesh = new THREE.InstancedMesh(this.geometry, this.material, spots.length);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
     spots.forEach((f, i) => {
       // Face the track, turned a little this way or that.
       q.setFromAxisAngle(up, (f.x < 0 ? Math.PI / 2 : -Math.PI / 2) + rng.range(-0.5, 0.5));
-      this.mesh.setMatrixAt(i, m.compose(p.set(f.x, 0, -f.d), q, s.setScalar(f.s)));
-      this.mesh.setColorAt(i, c.setHex(rng.pick(SHIRTS)));
+      mesh.setMatrixAt(i, m.compose(p.set(f.x, 0, -f.d), q, s.setScalar(f.s)));
+      mesh.setColorAt(i, c.setHex(rng.pick(SHIRTS)));
     });
-    this.mesh.frustumCulled = false;
+    mesh.frustumCulled = false;
+    this.mesh.add(mesh);
+    this.stands.push({ mesh, d0, d1 });
   }
 
-  /** Only drawn while the start or the finish is in view. */
+  /** Each batch is only drawn while it can be in view. */
   update(dt: number, viewD: number) {
     this.time.value += dt;
-    this.mesh.visible = viewD < 40 || viewD > RACE_LENGTH - 200;
+    for (const st of this.stands) st.mesh.visible = viewD > st.d0 && viewD < st.d1;
   }
 
   dispose() {
-    this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material).dispose();
-    this.mesh.dispose();
+    this.geometry.dispose();
+    this.material.dispose();
+    for (const st of this.stands) st.mesh.dispose();
   }
 }

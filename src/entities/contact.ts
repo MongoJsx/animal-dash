@@ -51,9 +51,12 @@ export function resolveContacts(bodies: Body[]) {
   // Pushing one runner back can press it into the one behind: settle in passes.
   for (let pass = 0; pass < 3; pass++) resolvePass(bodies);
   // A shove in a crowd can land someone on a third runner: finish with plain
-  // pushing apart, which only ever moves bodies out of each other.
-  for (let pass = 0; pass < 10; pass++) {
-    for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) separate(bodies[i], bodies[j]);
+  // pushing apart, which only ever moves bodies out of each other. A wide pack
+  // (seven abreast) takes a few more passes for the push to ripple through.
+  for (let pass = 0; pass < 40; pass++) {
+    let moved = false;
+    for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) moved = separate(bodies[i], bodies[j]) || moved;
+    if (!moved) break;
   }
 }
 
@@ -72,7 +75,7 @@ function clearSide(victim: Body, other: Body) {
  * the track, otherwise the one behind drops back. The stronger one moves less.
  */
 function separate(a: Body, b: Body) {
-  if (!touching(a, b) || (!a.nudge && !b.nudge)) return;
+  if (!touching(a, b) || (!a.nudge && !b.nudge)) return false;
   const dx = a.x - b.x;
   const penX = BODY.width - Math.abs(dx);
   const penD = BODY.depth - Math.abs(a.d - b.d);
@@ -86,13 +89,14 @@ function separate(a: Body, b: Body) {
     if (Math.abs(ax - bx) >= BODY.width) {
       a.nudge?.(ax - a.x, 0);
       b.nudge?.(bx - b.x, 0);
-      return;
+      return true;
     }
   }
   const [lead, trail] = a.d >= b.d ? [a, b] : [b, a];
   const back = BODY.depth - (lead.d - trail.d) + 0.01;
   if (trail.nudge) trail.nudge(0, -back);
   else lead.nudge!(0, back);
+  return true;
 }
 
 function resolvePass(bodies: Body[]) {

@@ -6,12 +6,15 @@ export const LANE_WIDTH = 2.3;
 export const laneX = (lane: number) => lane * LANE_WIDTH;
 
 /**
- * Lanes: 3 to 5, chosen before a race (one runner per lane). Lane numbers are
+ * Lanes: 3, 5 or 7, chosen before a race (one runner per lane). Lane numbers are
  * centred on the middle of the track and step by 1, so with an even count
  * they sit on halves (4 lanes: -1.5, -0.5, 0.5, 1.5). These are live bindings:
  * read them where they're used, never copy them into a module constant.
  */
-export const LANE_CHOICES = [3, 4, 5] as const;
+export const LANE_CHOICES = [3, 5, 7] as const;
+/** The lane choice nearest `n` (a count saved before the choices changed). */
+export const fitLanes = (n: number | undefined) =>
+  LANE_CHOICES.reduce<number>((a, b) => (Math.abs(b - (n ?? 3)) < Math.abs(a - (n ?? 3)) ? b : a), LANE_CHOICES[0]);
 export let LANE_COUNT = 3;
 export let LANE_MIN = -1;
 export let LANE_MAX = 1;
@@ -20,7 +23,7 @@ export let LANES: number[] = [-1, 0, 1];
 export let TRACK_HALF = LANE_WIDTH * 1.5 + 0.3;
 
 export function setLaneCount(n: number) {
-  LANE_COUNT = Math.max(3, Math.min(5, Math.round(n) || 3));
+  LANE_COUNT = Math.max(3, Math.min(7, Math.round(n) || 3));
   LANE_MAX = (LANE_COUNT - 1) / 2;
   LANE_MIN = -LANE_MAX;
   LANES = Array.from({ length: LANE_COUNT }, (_, i) => LANE_MIN + i);

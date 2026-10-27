@@ -1,7 +1,7 @@
 // Item boxes: placed the same for a seed, never inside an obstacle row, and in
 // a simulated race runners pick them up and every item does its job.
 // Usage: npx tsx tools/check-items.ts
-import { ITEM, LANES, TICK, laneX, setLaneCount } from '../src/config.ts';
+import { ITEM, LANES, LANE_CHOICES, TICK, laneX, setLaneCount } from '../src/config.ts';
 import type { Action } from '../src/core/input.ts';
 import { Player } from '../src/entities/player.ts';
 import { Rival } from '../src/entities/rival.ts';
@@ -42,7 +42,7 @@ const used: Record<string, number> = {};
 let pickups = 0, blocks = 0, springHits = 0, rivalUses = 0, rivalPickups = 0, flightStart = 0, rivalFlights = 0;
 const flights: number[] = [];
 for (let seed = 1; seed <= 40; seed++) {
-  setLaneCount(3 + (seed % 3));
+  setLaneCount(LANE_CHOICES[seed % LANE_CHOICES.length]);
   const track = buildTrack(seed, 'thai');
   const p = new Player();
   p.startSlot(laneX(LANES[0]), LANES[0]);

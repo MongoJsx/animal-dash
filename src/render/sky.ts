@@ -10,6 +10,7 @@ import { SkyLife } from './skyLife.ts';
 
 const _white = new THREE.Color(0xffffff);
 const _zenith = new THREE.Color(0x1d63c9);
+const _night = new THREE.Color(0x232a5c);
 
 export interface Look {
   top: THREE.Color;
@@ -23,6 +24,7 @@ export interface Look {
   fogNear: number;
   fogFar: number;
   side: THREE.Color;
+  night: number;
 }
 
 export function lookOf(p: Palette): Look {
@@ -39,6 +41,7 @@ export function lookOf(p: Palette): Look {
     fogNear: p.fog?.[0] ?? 45,
     fogFar: p.fog?.[1] ?? 175,
     side: new THREE.Color(p.side),
+    night: p.night ?? 0,
   };
 }
 
@@ -54,6 +57,7 @@ export function blendLook(out: Look, to: Look, k: number) {
   out.hemiI += (to.hemiI - out.hemiI) * k;
   out.fogNear += (to.fogNear - out.fogNear) * k;
   out.fogFar += (to.fogFar - out.fogFar) * k;
+  out.night += (to.night - out.night) * k;
 }
 
 export const cloneLook = (l: Look): Look => ({
@@ -79,11 +83,20 @@ uniform vec3 top;
 uniform vec3 horizon;
 uniform vec3 sunColor;
 uniform vec3 sunDir;
+uniform float night;
 varying vec3 vDir;
+float starHash( vec3 p ) { return fract( sin( dot( p, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ); }
 void main() {
   vec3 d = normalize( vDir );
   float h = clamp( d.y, 0.0, 1.0 );
   vec3 col = mix( horizon, top, pow( h, 0.55 ) );
+  if ( night > 0.01 ) {
+    // Stars: one per cell of a fine grid on the sky, a few bright, fading toward the horizon glow.
+    vec3 cell = floor( d * 260.0 );
+    float r = starHash( cell );
+    float star = step( 0.985, r ) * smoothstep( 0.1, 0.35, h ) * ( 0.5 + 0.5 * starHash( cell + 7.0 ) );
+    col += vec3( 0.9, 0.92, 1.0 ) * star * night;
+  }
   float s = max( dot( d, sunDir ), 0.0 );
   col += sunColor * ( pow( s, 900.0 ) * 1.4 + pow( s, 24.0 ) * 0.28 + pow( s, 4.0 ) * 0.08 );
   gl_FragColor = vec4( col, 1.0 );
@@ -243,10 +256,6 @@ const BACKDROP_HORIZON_Y = 30; // the picture's sea line this far above the far 
 // of the picture's height) and fades into the dome.
 const BACKDROP_MELT = 0.24;
 const BACKDROP_RISE = 0.5;
-// The picture slides round as you run (one copy = 1/copies of the horizon) and
-// drifts a little on its own, so the far scenery never stands still.
-const BACKDROP_PAN = 3 / 2000; // copies per metre run
-const BACKDROP_DRIFT = 0.01; // copies per second
 
 const BACKDROP_VS = /* glsl */ `
 uniform vec4 uvTransform; // repeat.x, offset.x, picture span (1 + rise)
@@ -318,7 +327,7 @@ export class Sky {
     this.dome = new THREE.Mesh(
       new THREE.SphereGeometry(390, 32, 16),
       new THREE.ShaderMaterial({
-        uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunColor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) } },
+        uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sunColor: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, night: { value: 0 } },
         vertexShader: DOME_VS, fragmentShader: DOME_FS, side: THREE.BackSide, depthWrite: false, fog: false,
       }),
     );
@@ -358,9 +367,8 @@ export class Sky {
 
   /**
    * @param yaw the track's heading where the runner is (see TrackPath.frame)
-   * @param d how far the runner is down the track
    */
-  update(cam: THREE.Vector3, look: Look, groundY: number, yaw: number, dt: number, d: number) {
+  update(cam: THREE.Vector3, look: Look, groundY: number, yaw: number, dt: number) {
     this.time += dt;
     this.dome.position.copy(cam);
     this.ring.position.set(cam.x, groundY - 2, cam.z);
@@ -375,9 +383,13 @@ export class Sky {
     this.floor.material.color.copy(look.side).lerp(look.horizon, 0.25);
     // The light on the far scene: full on a sunny day, dimmer and tinted at dusk or in snow.
     this.tint.copy(look.hemiSky).lerp(_white, 0.3).multiplyScalar(Math.min(1, look.sunI / 2.4) ** 1.6);
+    // Night: the painted day sinks into deep blue.
+    this.tint.lerp(_night, look.night * 0.8);
+    u.night.value = look.night;
     if (this.backdrop) {
       this.backdrop.position.set(cam.x, groundY, cam.z);
-      this.backdrop.material.uniforms.uvTransform.value.y = this.backdropFocus + d * BACKDROP_PAN + this.time * BACKDROP_DRIFT;
+      // The picture stays put on the horizon: only the track's own bends turn it.
+      this.backdrop.material.uniforms.uvTransform.value.y = this.backdropFocus;
       // The picture is a sunny day: dim and tint it to the zone's light.
       this.backdrop.material.uniforms.tint.value.copy(this.tint);
       // Above the picture the dome carries on in its sky blue, deepening overhead.
